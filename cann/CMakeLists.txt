@@ -61,3 +61,43 @@ add_executable(strata_cann_probe src/cann_probe.cpp)
 target_include_directories(strata_cann_probe PRIVATE ${STRATA_CANN_INCLUDE_DIR})
 target_link_libraries(strata_cann_probe PRIVATE ${STRATA_CANN_ASCENDCL_LIB})
 target_compile_definitions(strata_cann_probe PRIVATE STRATA_VERSION="0.1.56")
+
+# --- BEGIN Phase 1 (GEMM worker) -------------------------------------------
+# aclnn matmul (src/cann_gemm.{h,cpp}) and its standalone on-device test
+# (tests/test_cann_gemm.cpp). Self-contained: the coordinator merges this
+# block; it adds no target to the top-level build and changes nothing
+# above. The aclnn symbols (aclnnMatmul et al.) live in libopapi_nn.so,
+# and aclCreateTensor/aclDestroyTensor in libnnopbase.so — neither is
+# in libascendcl.so. The test's CPU reference uses OpenMP when found.
+find_library(STRATA_CANN_OPAPI_LIB NAMES opapi_nn
+  HINTS ${_cann_roots}
+  PATH_SUFFIXES lib64 lib
+  NO_DEFAULT_PATH
+)
+find_library(STRATA_CANN_NNOPBASE_LIB NAMES nnopbase
+  HINTS ${_cann_roots}
+  PATH_SUFFIXES lib64 lib
+  NO_DEFAULT_PATH
+)
+if(NOT STRATA_CANN_OPAPI_LIB OR NOT STRATA_CANN_NNOPBASE_LIB)
+  message(FATAL_ERROR
+    "Strata CANN: libopapi_nn.so / libnnopbase.so not found under ASCEND_HOME_PATH / /usr/local/Ascend "
+    "(aclnnMatmul lives in the former, aclCreateTensor in the latter, neither in libascendcl).")
+endif()
+
+add_library(strata_cann_gemm src/cann_gemm.cpp)
+target_include_directories(strata_cann_gemm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src PRIVATE ${STRATA_CANN_INCLUDE_DIR})
+target_link_libraries(strata_cann_gemm PUBLIC ${STRATA_CANN_ASCENDCL_LIB} ${STRATA_CANN_OPAPI_LIB} ${STRATA_CANN_NNOPBASE_LIB})
+
+add_executable(test_cann_gemm tests/test_cann_gemm.cpp)
+target_include_directories(test_cann_gemm PRIVATE ${STRATA_CANN_INCLUDE_DIR})
+# The CPU reference is a plain triple loop; -march=native (test binary
+# only, never the library) is what makes it finish in reasonable time.
+target_compile_options(test_cann_gemm PRIVATE -O3 -march=native)
+target_link_libraries(test_cann_gemm PRIVATE strata_cann_gemm)
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(test_cann_gemm PRIVATE OpenMP::OpenMP_CXX)
+  target_compile_definitions(test_cann_gemm PRIVATE STRATA_CANN_GEMM_TEST_OPENMP)
+endif()
+# --- END Phase 1 (GEMM worker) ---------------------------------------------
