@@ -20,6 +20,18 @@ if(STRATA_ENABLE_SYCL)
   add_subdirectory(sycl)
   return()
 endif()
+# EXPERIMENTAL: the Ascend engine, the CANN port in cann/ (docs/CANN.md, docs/CANN_PORT_PLAN.md). It is its
+# own project, mirroring sycl/; with this on, nothing below is configured. Phase 0 builds only
+# strata_cann_probe, a no-model CANN runtime self-test.
+option(STRATA_ENABLE_CANN "EXPERIMENTAL: build the Ascend (CANN) engine from cann/ - docs/CANN.md" OFF)
+if(STRATA_ENABLE_CANN)
+  if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP OR STRATA_ENABLE_SYCL)
+    message(FATAL_ERROR "STRATA_ENABLE_CANN is a separate backend; leave STRATA_ENABLE_CUDA, STRATA_ENABLE_HIP and STRATA_ENABLE_SYCL off")
+  endif()
+  message(WARNING "STRATA_ENABLE_CANN: the Ascend engine is experimental (Phase 0: probe only, docs/CANN.md)")
+  add_subdirectory(cann)
+  return()
+endif()
 add_compile_definitions(STRATA_VERSION="${PROJECT_VERSION}")
 # issue #31: release builds keep a PDB beside the exe (not shipped in it), so a minidump from a stalled engine can
 # be read back to the exact source line
