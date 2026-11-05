@@ -176,12 +176,62 @@ via a native CANN backend. Upstream Strata has no Ascend backend today
   (mismatched here); MindIE's support list as checked did not list
   Qwen3.6.
 
+### Phase 1 verified (2026-11-05, 910B2C, CANN 9.0.0)
+
+- **GEMM** (`cann-gemm` 70bc6068, merged): `test_cann_gemm` passes
+  all 32 shapes against an independent CPU FP32 reference, twice
+  (second run agrees to ~1e-6). FP16->FP32 max rel err 8.1e-07–
+  2.5e-06; FP32 cube=0 6.6e-07–2.4e-06; FP32 cube=1 1.2e-04–1.5e-04.
+  **FP32 + cubeMathType=0 (KEEP_DTYPE) works on this box** — true
+  FP32 at ~1e-6, no slower than cube=1; the router / alpha-beta path
+  should use cube=0, not the down-precision cube=1 path this plan
+  assumed. Details: `cann/PHASE1_GEMM.md`.
+- **GDN attention + RMSNorm / SiLU / RoPE** (`cann-attn` b81c1009,
+  merged): `test_cann_attention` passes **all cases, exit 0**
+  against an independent CPU FP32 reference transcribed from the
+  CUDA kernels — small geometry (S=8, HK=2, HV=4, T=5 + decode) and
+  real Qwen3.6 geometry (T=32 prompt + T=1 decode), chunk identity
+  16+16 vs 32 bitwise 0. Worst output error 1.9e-06 (qwen36 gate),
+  worst state error 1.1e-08. Details: `cann/PHASE1_ATTENTION.md`.
+- **Merged branch**: `ascend-cann` 11b404a9 on the fork
+  (cann-gemm + cann-attn merged; the CMake `STRATA_CANN_OPAPI_LIB`
+  conflict was resolved by renaming apart: `OPAPI_NN_LIB` ->
+  opapi_nn for GEMM, `OPAPI_LIB` -> opapi for attention, nnopbase
+  found once). Both tests re-run from the merged tree on the box:
+  GEMM ALL PASS, attention ALL CASES PASSED.
+- **Findings that change how the port is written:**
+  - *Never destroy an executed aclOpExecutor.* On CANN 9.0.0 the
+    executor is a runtime-shared object: destroying one whose op has
+    executed segfaults the next different op's GetWorkspaceSize
+    (reproduced Add->Abs/Neg/Exp, Abs->Add; a stream sync before the
+    destroy does not help; destroying only the aclScalar is
+    harmless). `run_op` therefore leaks executors for the life of
+    the process. GEMM never hit this only because it uses a single
+    op type (and its code never destroys the executor at all).
+  - *ReduceSum output must match the reduced rank* (161002
+    PARAM_INVALID otherwise, even with matching element counts).
+  - *Value-head to q/k-head mapping is interleaved* (`qh = head %
+    h_k`, per `k_gdn_seq`); a blocked `[HK][R]` state layout pairs
+    half the value heads with the wrong q/k head. The step stores
+    the state as `[R][HK][S][S]`.
+  - *Test harness:* synchronous aclrtMemcpy does not wait for a
+    custom stream on this runtime — the test syncs the stream in
+    `run_case` before reading results (library calls stay async).
+- **Still open:** GGUF dequant kernels, engine wiring, full
+  attention (QK^T + softmax + PV, KV cache, QSA), MoE routing +
+  PLE streaming, MTP, multi-device (910C), single-layer bit-close
+  against a CUDA build (needs a CUDA machine), BF16 path, any real
+  timing/benchmark.
+
 ## Open questions (fill in before phase 1)
 
 - 910C box: still no target machine. §6 stays unvalidated.
-- GGUF copy of Qwen3.6-35B-A3B for the Strata qwen36 path: not yet
-  obtained (the BF16 safetensors on the box cannot be fed to Strata
-  as-is).
+- GGUF copy of Qwen3.6-35B-A3B for the Strata qwen36 path:
+  **obtained 2026-11-05** — `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf`
+  (22,853,663,008 bytes, SHA256 matches Strata's pin) at
+  `/data/strata-qwen36/` on the box, downloaded via ModelScope with
+  Strata's own download logic. `mmproj-F16.gguf` (vision) not yet
+  downloaded; only needed for pictures.
 - NFS read speed for the PLE streaming path: not yet measured.
 - `ASCEND_RT_VISIBLE_DEVICES` mapping for `/dev/davinci14`: verified
   2026-11-04 — the runtime inside the container sees 1 device,
