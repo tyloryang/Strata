@@ -115,3 +115,7 @@ Fork：https://github.com/tyloryang/Strata
 - Codex 分支与本分支 `ascend-cann` 的合并方式未定：两边都改了 `cann/`，
   直接合会冲突，需先对齐测试套件（Phase 1 的 test_cann_* vs parity 套件）。
 - `/root/ascend/atrace` 下有 4 组 atrace 跟踪（14:52–14:59 UTC），未细读。
+
+## Update 2026-11-06 00:23 CST
+
+The scripts themselves are now in this repo under `docs/ascend-deepseek/` (36 `srv_*.sh`, `serve/accept/measure_qwen38.sh`, the on-box Python files, `status_page.py`), collected after the IQ3_XXS download completed and size-verified. See that directory's README for provenance and caveats.

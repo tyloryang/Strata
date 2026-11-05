@@ -1,0 +1,17 @@
+#!/bin/bash
+set -uo pipefail
+cd /data || exit 1
+rm -rf /data/strata-src /data/build-strata
+mkdir -p /data/strata-src && tar -xzf /data/cann-src.tar.gz -C /data/strata-src
+export ASCEND_TOOLKIT_HOME=/usr/local/Ascend/cann-9.0.0
+export ASCEND_HOME_PATH="$ASCEND_TOOLKIT_HOME"
+export LD_LIBRARY_PATH="$ASCEND_TOOLKIT_HOME/lib64:$ASCEND_TOOLKIT_HOME/x86_64-linux/lib64:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver"
+cmake -S /data/strata-src/cann -B /data/build-strata -DCMAKE_BUILD_TYPE=Release > /tmp/pc_cmake.log 2>&1
+echo "cmake rc=$?"
+cmake --build /data/build-strata --target port_check gguf_dump -j 32 > /tmp/pc_build.log 2>&1
+echo "build rc=$?"
+grep -m 5 -E 'error:' /tmp/pc_build.log
+ls -la /data/build-strata/port_check /data/build-strata/gguf_dump 2>/dev/null
+echo
+F=$(find /data/models/IQ3_XXS -name '*00001-of-00002.gguf*' | head -1)
+/data/build-strata/port_check "$F"
