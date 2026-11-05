@@ -13,5 +13,7 @@ uint64_t tensor_bytes_on_disk(const GgufTensor & t);
 // Dequantize / convert the whole tensor to float in file order.
 // Throws std::runtime_error for a type the port cannot read yet.
 std::vector<float> load_tensor(const Gguf & g, const GgufTensor & t);
+// A block-aligned range, for MoE experts and sparse PLE table rows.
+std::vector<float> load_tensor_slice(const Gguf & g, const GgufTensor & t, uint64_t start, uint64_t count);
 
 } // namespace strata::cann

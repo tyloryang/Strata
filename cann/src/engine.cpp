@@ -4,6 +4,7 @@
 // cache, the per-layer state, the three step functions, and the top-of-distribution projection.
 // tests/model_seq.cpp keeps the parity probe, the generator and the serving loop.
 #include "strata/cann/engine.hpp"
+#include "strata/cann/qwen38.hpp"
 
 #include <acl/acl.h>
 
@@ -33,25 +34,81 @@ using clock_type = std::chrono::steady_clock;
 
 namespace {
 
-constexpr int64_t kHidden = 2048;
-constexpr int64_t kMaxTopk = 64;
-constexpr int64_t kHeadDimSsm = 128;
-constexpr int64_t kKHeads = 16;
-constexpr int64_t kVHeads = 32;
-constexpr int64_t kConvK = 4;
-constexpr int64_t kKeyDim = kHeadDimSsm * kKHeads;
-constexpr int64_t kValueDim = kHeadDimSsm * kVHeads;
-constexpr int64_t kQkvDim = kKeyDim * 2 + kValueDim;
-constexpr int64_t kHeadDimAttn = 256;
-constexpr int64_t kHeads = 16;
-constexpr int64_t kKvHeads = 2;
-constexpr int64_t kRot = 64;
-constexpr float kFreqBase = 1e7f;
-constexpr float kRmsEps = 1e-6f;
-constexpr int64_t kQDim = kHeads * kHeadDimAttn * 2;
-constexpr int64_t kKvDim = kKvHeads * kHeadDimAttn;
-constexpr int64_t kExpertInter = 512;
-constexpr int64_t kTopK = 8;
+// Every shape the engine needs, in one place. Today it is a compile-time constant holding the
+// Qwen3.6 numbers; the point of putting it in a struct is that the port changes which model it
+// describes, not which macro a call site mentions. Derived values (qkv_dim and friends) are
+// computed here so that changing a head count cannot leave a stale total behind.
+struct ModelConfig {
+    int64_t hidden          = 2048;
+    int64_t head_dim_ssm    = 128;
+    int64_t k_heads         = 16;
+    int64_t v_heads         = 32;
+    int64_t conv_k          = 4;
+    int64_t head_dim_attn   = 256;
+    int64_t attn_heads      = 16;
+    int64_t attn_kv_heads   = 2;
+    int64_t rope_dim        = 64;
+    float   freq_base       = 1e7f;
+    float   rms_eps         = 1e-6f;
+    int64_t expert_inter    = 512;
+    int64_t experts_used    = 8;
+    int64_t max_topk        = 64;
+
+    constexpr int64_t key_dim() const { return head_dim_ssm * k_heads; }
+    constexpr int64_t value_dim() const { return head_dim_ssm * v_heads; }
+    constexpr int64_t qkv_dim() const { return key_dim() * 2 + value_dim(); }
+    constexpr int64_t q_dim() const { return attn_heads * head_dim_attn * 2; }
+    constexpr int64_t kv_dim() const { return attn_kv_heads * head_dim_attn; }
+};
+
+constexpr ModelConfig kModel {};
+
+// The existing call sites keep their names, so this step changes no behaviour at all. The
+// assertions below are the proof: if any derived value drifted, this does not compile.
+constexpr int64_t kHidden = kModel.hidden;
+constexpr int64_t kMaxTopk = kModel.max_topk;
+constexpr int64_t kHeadDimSsm = kModel.head_dim_ssm;
+constexpr int64_t kKHeads = kModel.k_heads;
+constexpr int64_t kVHeads = kModel.v_heads;
+constexpr int64_t kConvK = kModel.conv_k;
+constexpr int64_t kKeyDim = kModel.key_dim();
+constexpr int64_t kValueDim = kModel.value_dim();
+constexpr int64_t kQkvDim = kModel.qkv_dim();
+constexpr int64_t kHeadDimAttn = kModel.head_dim_attn;
+constexpr int64_t kHeads = kModel.attn_heads;
+constexpr int64_t kKvHeads = kModel.attn_kv_heads;
+constexpr int64_t kRot = kModel.rope_dim;
+constexpr float kFreqBase = kModel.freq_base;
+constexpr float kRmsEps = kModel.rms_eps;
+constexpr int64_t kQDim = kModel.q_dim();
+constexpr int64_t kKvDim = kModel.kv_dim();
+constexpr int64_t kExpertInter = kModel.expert_inter;
+constexpr int64_t kTopK = kModel.experts_used;
+
+static_assert(kHidden == 2048, "the Qwen3.6 numbers must not move");
+static_assert(kHeadDimSsm == 128);
+static_assert(kKHeads == 16);
+static_assert(kVHeads == 32);
+static_assert(kConvK == 4);
+static_assert(kKeyDim == 2048);
+static_assert(kValueDim == 4096);
+static_assert(kQkvDim == 8192, "qkv_dim is derived: 2*2048 + 4096");
+static_assert(kHeadDimAttn == 256);
+static_assert(kHeads == 16);
+static_assert(kKvHeads == 2);
+static_assert(kRot == 64);
+static_assert(kQDim == 8192);
+static_assert(kKvDim == 512);
+static_assert(kExpertInter == 512);
+static_assert(kTopK == 8);
+static_assert(kMaxTopk == 64);
+
+// what the same struct says for Qwen3.8, checked but not yet used
+constexpr ModelConfig kQwen38Q { 2560, 128, 16, 48, 4, 256, 24, 2, 64, 1e7f, 1e-6f, 640, 10, 64 };
+static_assert(kQwen38Q.qkv_dim() == 10240, "16*128*2 + 48*128");
+static_assert(kQwen38Q.q_dim() == 12288, "24 heads x 256 x 2");
+static_assert(kQwen38Q.kv_dim() == 512);
+
 
 std::vector<float> round_f16(const std::vector<float> & v) {
     std::vector<uint16_t> h(v.size());
@@ -754,13 +811,21 @@ struct Model::Impl {
 
 };
 
-Model::Model(const std::string & path, int64_t capacity) : impl_(std::make_unique<Impl>(path, capacity)) {}
+Model::Model(const std::string & path, int64_t capacity) {
+    const Gguf header(path);
+    if (header.arch() == "qwen4exp") qwen38_ = std::make_unique<Qwen38Model>(path, capacity);
+    else {
+        if (header.arch() != "qwen35moe") throw Error("engine: unsupported architecture " + header.arch(), -1);
+        impl_ = std::make_unique<Impl>(path, capacity);
+    }
+}
 Model::~Model() = default;
 
-int64_t Model::capacity() const { return impl_->capacity; }
-int64_t Model::vocab() const { return impl_->vocab; }
+int64_t Model::capacity() const { return qwen38_ ? qwen38_->capacity() : impl_->capacity; }
+int64_t Model::vocab() const { return qwen38_ ? qwen38_->vocab() : impl_->vocab; }
 
 std::vector<float> Model::step(int64_t token, int64_t pos) {
+    if (qwen38_) return qwen38_->step(token, pos);
     Impl & m = *impl_;
     const std::vector<uint8_t> row = m.gguf.tensor_bytes(*m.embd, (uint64_t) token * m.row_bytes, m.row_bytes);
     std::vector<float> h((size_t) kHidden);
@@ -805,6 +870,7 @@ std::vector<float> Model::step(int64_t token, int64_t pos) {
 }
 
 void Model::reset() {
+    if (qwen38_) { qwen38_->reset(); return; }
     Impl & m = *impl_;
     for (int64_t il = 0; il < 40; ++il) {
         if (m.gdn_states[(size_t) il]) {
@@ -827,6 +893,7 @@ void Model::reset() {
 }
 
 Model::Top Model::top(const std::vector<float> & hidden, int64_t k) {
+    if (qwen38_) return qwen38_->top(hidden, k);
     Impl & m = *impl_;
     if (k > kMaxTopk) {
         throw Error("engine: top() asked for more than kMaxTopk", -1);
@@ -879,7 +946,7 @@ Model::Top Model::top(const std::vector<float> & hidden, int64_t k) {
     return out;
 }
 
-int64_t Model::cache_bytes() const { return impl_->cache.bytes(); }
+int64_t Model::cache_bytes() const { return qwen38_ ? qwen38_->cache_bytes() : impl_->cache.bytes(); }
 void Model::print_slab_stats() { WeightCache::print_slab_stats(); }
 
 } // namespace strata::cann

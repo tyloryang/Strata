@@ -80,6 +80,7 @@ void run(Model & model, const std::vector<int64_t> & prompt, int64_t n_gen, floa
     }
 
     Model::Top t = model.top(hidden, n_gen > 0 ? 32 : 5);
+    const auto decode_start = std::chrono::steady_clock::now();
     printf("LOGP %.6f\n", t.log_z);
     if (verbose) {
         printf("\nnext token from position %lld:\n", (long long) (prompt.size() - 1));
@@ -90,6 +91,7 @@ void run(Model & model, const std::vector<int64_t> & prompt, int64_t n_gen, floa
 
     std::mt19937 rng(1234u);
     int64_t pos = (int64_t) prompt.size();
+    int64_t generated = 0;
     for (int64_t step = 0; step < n_gen; ++step) {
         if (pos >= model.capacity()) {
             printf("GEN_STOP context full\n");
@@ -97,6 +99,7 @@ void run(Model & model, const std::vector<int64_t> & prompt, int64_t n_gen, floa
         }
         const int pick = sample(t.best, temp, rng);
         printf("GEN %d %.6f\n", pick, (double) t.best[0].first);
+        ++generated;
         fflush(stdout);
         if (step + 1 >= n_gen) {
             break;
@@ -105,6 +108,11 @@ void run(Model & model, const std::vector<int64_t> & prompt, int64_t n_gen, floa
         ++pos;
         t = model.top(hidden, 32);
     }
+    const auto ended = std::chrono::steady_clock::now();
+    const double prefill_s = std::chrono::duration<double>(decode_start - t0).count();
+    const double decode_s = std::chrono::duration<double>(ended - decode_start).count();
+    printf("TIMING prefill_s=%.6f decode_s=%.6f generated=%lld decode_tok_s=%.6f\n", prefill_s, decode_s,
+           (long long)generated, generated > 1 && decode_s > 0 ? (generated - 1) / decode_s : 0.0);
     if (verbose) {
         printf("done in %.1f s\n", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
     }
@@ -132,6 +140,8 @@ int main(int argc, char ** argv) {
     const int64_t kCap = serve ? 512 : (int64_t) toks.size() + std::max<int64_t>(0, n_predict);
 
     try {
+        // Tear down model buffers/device before finalizing the CANN runtime.
+        struct Finalize { ~Finalize() { shutdown(); } } finalize;
         Model model(path, kCap);
         if (serve) {
             printf("READY\n");
@@ -163,13 +173,11 @@ int main(int argc, char ** argv) {
                 fflush(stdout);
             }
             Model::print_slab_stats();
-            shutdown();
             return 0;
         }
 
         run(model, toks, n_predict, gen_temp, true);
         Model::print_slab_stats();
-        shutdown();
         return 0;
     } catch (const std::exception & e) {
         printf("FAILED: %s\n", e.what());

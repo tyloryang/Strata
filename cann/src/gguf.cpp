@@ -118,6 +118,22 @@ Gguf::Gguf(const std::string & path) : path_(path) {
                 break;
             }
             case Kind::Bool: ints_[key] = r.get<uint8_t>() ? 1 : 0; break;
+            case Kind::Array: {
+                const auto elem = (Kind) r.get<uint32_t>();
+                const uint64_t count = r.get<uint64_t>();
+                // Model geometry/hash tables only; do not materialize tokenizer arrays.
+                const bool keep = key.rfind("qwen4exp.", 0) == 0 && count <= 100000 &&
+                    (elem == Kind::U32 || elem == Kind::I32 || elem == Kind::U64 || elem == Kind::I64);
+                if (keep) {
+                    auto & values = arrays_[key];
+                    values.reserve(count);
+                    for (uint64_t j = 0; j < count; ++j)
+                        values.push_back(elem == Kind::U32 || elem == Kind::I32 ? r.get<uint32_t>() : r.get<uint64_t>());
+                } else {
+                    for (uint64_t j = 0; j < count; ++j) r.skip_value(elem);
+                }
+                break;
+            }
             default: r.skip_value(kind); break;
         }
     }
@@ -162,6 +178,12 @@ double Gguf::metadata_flt(const std::string & key) const {
 std::string Gguf::metadata_str(const std::string & key) const {
     const auto it = strings_.find(key);
     return it == strings_.end() ? std::string() : it->second;
+}
+
+const std::vector<uint64_t> & Gguf::metadata_uints(const std::string & key) const {
+    const auto it = arrays_.find(key);
+    if (it == arrays_.end()) throw std::runtime_error("gguf: missing integer array " + key);
+    return it->second;
 }
 
 const GgufTensor * Gguf::find(const std::string & name) const {
