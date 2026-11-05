@@ -1,10 +1,15 @@
 # `cann/` - the Ascend port of the engine
 
-The current Qwen3.8-Flash-Next IQ3_XXS path is documented in
-[`QWEN38_IQ3_XXS_ASCEND.md`](QWEN38_IQ3_XXS_ASCEND.md). It is an opt-in Torch/CANN
-backend for a single Ascend 910B2C; the older C++ sections below describe the
-Qwen3.6 parity path and its historical measurements.
-中文说明见 [`QWEN38_IQ3_XXS_ASCEND_CN.md`](QWEN38_IQ3_XXS_ASCEND_CN.md)。
+Qwen3.8-Flash-Next IQ3_XXS now has a native C++ path through `model_seq`:
+[`QWEN38_NATIVE_CANN_CN.md`](QWEN38_NATIVE_CANN_CN.md) gives the commands and
+910B2C measurements. Weight projections use CANN FP32; recurrent state and
+elementwise operations currently use host FP32. Eight greedy tokens matched
+the independent Torch path. This is a correctness port, not a fast serving backend.
+
+The separate Torch/CANN HTTP backend remains documented in
+[`QWEN38_IQ3_XXS_ASCEND.md`](QWEN38_IQ3_XXS_ASCEND.md) and
+[`QWEN38_IQ3_XXS_ASCEND_CN.md`](QWEN38_IQ3_XXS_ASCEND_CN.md).
+The older C++ sections below describe Qwen3.6 and its historical measurements.
 
 This directory is to the CANN backend what `sycl/` is to the Intel backend: a separate project
 that grows next to the CUDA engine until it can take the engine's sources.

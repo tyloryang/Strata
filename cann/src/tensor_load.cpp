@@ -57,12 +57,23 @@ uint64_t tensor_bytes_on_disk(const GgufTensor & t) {
 }
 
 std::vector<float> load_tensor(const Gguf & g, const GgufTensor & t) {
-    const uint64_t bytes = tensor_bytes_on_disk(t);
+    return load_tensor_slice(g, t, 0, t.elements());
+}
+
+std::vector<float> load_tensor_slice(const Gguf & g, const GgufTensor & t, uint64_t start, uint64_t n) {
+    if (start > t.elements() || n > t.elements() - start || n == 0)
+        throw std::runtime_error("tensor_load: range outside " + t.name);
+    const uint64_t block = t.type == kF32 || t.type == kF16 || t.type == kBF16 ? 1 : quant_block_elements(t.type);
+    if (!block || start % block || n % block)
+        throw std::runtime_error("tensor_load: unaligned range for " + t.name);
+    GgufTensor slice = t;
+    slice.dims = {n};
+    const uint64_t bytes = tensor_bytes_on_disk(slice);
     if (bytes == 0) {
         throw std::runtime_error("tensor_load: unsupported type " + std::to_string(t.type) + " for " + t.name);
     }
-    const std::vector<uint8_t> raw = g.tensor_bytes(t, 0, bytes);
-    const uint64_t n = t.elements();
+    const uint64_t unit = t.type == kF32 ? 4 : t.type == kF16 || t.type == kBF16 ? 2 : quant_type_size(t.type);
+    const std::vector<uint8_t> raw = g.tensor_bytes(t, start / block * unit, bytes);
     std::vector<float> out((size_t) n);
 
     switch (t.type) {

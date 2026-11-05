@@ -1,5 +1,9 @@
 # Qwen3.8-Flash-Next IQ3_XXS 在昇腾 910B2C 上运行
 
+优先运行 Strata 原生 C++ 引擎时，请看 [原生 C++/CANN 运行与实测](QWEN38_NATIVE_CANN_CN.md)。
+该路径已在 910B2C 上完成 8-token 实测。本篇继续说明独立的 Torch/CANN HTTP 后端；
+两条路径的执行方式、速度和服务状态应分别判断。
+
 这是当前 `cann/python` 中可选启用的 Qwen3.8 后端。它使用 Torch 和
 `torch_npu` 运行原始 GSQ-RCO IQ3_XXS GGUF，不依赖 vLLM、CUDA、llama.cpp
 或 Qwen3.6 C++ 参考服务。

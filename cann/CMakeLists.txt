@@ -33,7 +33,7 @@ find_library(OPAPI_LIB opapi PATHS "${ASCEND_HOME_PATH}/lib64" "${ASCEND_HOME_PA
 find_library(ACL_OP_COMPILER_LIB acl_op_compiler PATHS "${ASCEND_HOME_PATH}/lib64"
              "${ASCEND_HOME_PATH}/x86_64-linux/lib64" NO_DEFAULT_PATH REQUIRED)
 
-add_library(strata_cann STATIC src/device.cpp src/ops.cpp src/quants.cpp src/iq_quants.cpp src/gdn.cpp src/gguf.cpp src/tensor_load.cpp src/engine.cpp src/hc.cpp)
+add_library(strata_cann STATIC src/device.cpp src/ops.cpp src/quants.cpp src/iq_quants.cpp src/gdn.cpp src/gguf.cpp src/tensor_load.cpp src/engine.cpp src/hc.cpp src/qwen38.cpp)
 target_include_directories(strata_cann PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include" "${ASCEND_HOME_PATH}/include"
                                               "${ASCEND_HOME_PATH}/include/aclnn"
                                               "${ASCEND_HOME_PATH}/x86_64-linux/include")

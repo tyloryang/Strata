@@ -33,6 +33,7 @@ public:
     int64_t metadata_int(const std::string & key) const;
     double metadata_flt(const std::string & key) const;
     std::string metadata_str(const std::string & key) const;
+    const std::vector<uint64_t> & metadata_uints(const std::string & key) const;
 
     // Everything the file declares, for tools that report what a model actually contains.
     const std::unordered_map<std::string, int64_t> & int_metadata() const { return ints_; }
@@ -52,6 +53,7 @@ private:
     std::unordered_map<std::string, std::string> strings_;
     std::unordered_map<std::string, double> floats_;
     std::unordered_map<std::string, int64_t> ints_;
+    std::unordered_map<std::string, std::vector<uint64_t>> arrays_;
 };
 
 } // namespace strata::cann

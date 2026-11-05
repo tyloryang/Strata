@@ -4,6 +4,7 @@
 // cache, the per-layer state, the three step functions, and the top-of-distribution projection.
 // tests/model_seq.cpp keeps the parity probe, the generator and the serving loop.
 #include "strata/cann/engine.hpp"
+#include "strata/cann/qwen38.hpp"
 
 #include <acl/acl.h>
 
@@ -810,13 +811,21 @@ struct Model::Impl {
 
 };
 
-Model::Model(const std::string & path, int64_t capacity) : impl_(std::make_unique<Impl>(path, capacity)) {}
+Model::Model(const std::string & path, int64_t capacity) {
+    const Gguf header(path);
+    if (header.arch() == "qwen4exp") qwen38_ = std::make_unique<Qwen38Model>(path, capacity);
+    else {
+        if (header.arch() != "qwen35moe") throw Error("engine: unsupported architecture " + header.arch(), -1);
+        impl_ = std::make_unique<Impl>(path, capacity);
+    }
+}
 Model::~Model() = default;
 
-int64_t Model::capacity() const { return impl_->capacity; }
-int64_t Model::vocab() const { return impl_->vocab; }
+int64_t Model::capacity() const { return qwen38_ ? qwen38_->capacity() : impl_->capacity; }
+int64_t Model::vocab() const { return qwen38_ ? qwen38_->vocab() : impl_->vocab; }
 
 std::vector<float> Model::step(int64_t token, int64_t pos) {
+    if (qwen38_) return qwen38_->step(token, pos);
     Impl & m = *impl_;
     const std::vector<uint8_t> row = m.gguf.tensor_bytes(*m.embd, (uint64_t) token * m.row_bytes, m.row_bytes);
     std::vector<float> h((size_t) kHidden);
@@ -861,6 +870,7 @@ std::vector<float> Model::step(int64_t token, int64_t pos) {
 }
 
 void Model::reset() {
+    if (qwen38_) { qwen38_->reset(); return; }
     Impl & m = *impl_;
     for (int64_t il = 0; il < 40; ++il) {
         if (m.gdn_states[(size_t) il]) {
@@ -883,6 +893,7 @@ void Model::reset() {
 }
 
 Model::Top Model::top(const std::vector<float> & hidden, int64_t k) {
+    if (qwen38_) return qwen38_->top(hidden, k);
     Impl & m = *impl_;
     if (k > kMaxTopk) {
         throw Error("engine: top() asked for more than kMaxTopk", -1);
@@ -935,7 +946,7 @@ Model::Top Model::top(const std::vector<float> & hidden, int64_t k) {
     return out;
 }
 
-int64_t Model::cache_bytes() const { return impl_->cache.bytes(); }
+int64_t Model::cache_bytes() const { return qwen38_ ? qwen38_->cache_bytes() : impl_->cache.bytes(); }
 void Model::print_slab_stats() { WeightCache::print_slab_stats(); }
 
 } // namespace strata::cann

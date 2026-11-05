@@ -14,6 +14,8 @@
 
 namespace strata::cann {
 
+class Qwen38Model;
+
 class Model {
 public:
     struct Top {
@@ -46,6 +48,7 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    std::unique_ptr<Qwen38Model> qwen38_;
 };
 
 } // namespace strata::cann
