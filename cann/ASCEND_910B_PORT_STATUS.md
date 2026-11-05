@@ -1,7 +1,7 @@
 # 昇腾 910B2C 移植：结果与过程（Strata / CANN）
 
 更新时间：2026-11-05 12:40（Asia/Shanghai）
-服务器：`root+vm-sUzQqUJeZBAMQVNh@106.75.235.239 -p 32222`
+服务器：`<user>@<host> -p 32222`
 
 ---
 
@@ -67,7 +67,7 @@
 | 编译 | gcc/g++ 12.3.1，cmake 3.27.9；**无 ninja、无 unzip** |
 | 外网 | pypi / modelscope 通；**GitHub 不通** |
 
-> 密码是 `Yangyushan55@`（12 字符）。第一次我误加了结尾 `$`，所以认证失败过一轮。
+> SSH 凭据通过交互输入，不保存在文档中。
 
 ## 2. 移植进度
 
@@ -431,10 +431,10 @@ blk.0.post_attention_norm.weight F32 [2048]
 
 ```powershell
 # 18789（llama.cpp，实际使用）
-ssh -CNg -L 18789:127.0.0.1:18789 -p 32222 root+vm-sUzQqUJeZBAMQVNh@106.75.235.239
+ssh -CNg -L 18789:127.0.0.1:18789 -p 32222 <user>@<host>
 
 # 再加上 18790（本引擎）就写成两行 -L
-ssh -CNg -L 18789:127.0.0.1:18789 -L 18790:127.0.0.1:18790 -p 32222 root+vm-sUzQqUJeZBAMQVNh@106.75.235.239
+ssh -CNg -L 18789:127.0.0.1:18789 -L 18790:127.0.0.1:18790 -p 32222 <user>@<host>
 ```
 
 Windows 侧 `127.0.0.1:18789` 已监听：`/health` 200、`/props` 返回模型路径、

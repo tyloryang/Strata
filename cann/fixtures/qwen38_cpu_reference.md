@@ -1,6 +1,6 @@
 # Qwen3.8-Flash-Next IQ3_XXS, CPU reference output
 
-Produced on 106.75.235.239 (2x910B2C, openEuler 24.03, CANN 9.0.0) with llama.cpp master built
+Produced on <ascend-host> (2x910B2C, openEuler 24.03, CANN 9.0.0) with llama.cpp master built
 `GGML_CANN=OFF`, `GGML_NATIVE=OFF`, Release. Single thread and a fixed seed, so the reduction
 order, and therefore the text, are reproducible.
 
