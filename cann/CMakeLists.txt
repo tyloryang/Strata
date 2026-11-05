@@ -62,14 +62,20 @@ target_include_directories(strata_cann_probe PRIVATE ${STRATA_CANN_INCLUDE_DIR})
 target_link_libraries(strata_cann_probe PRIVATE ${STRATA_CANN_ASCENDCL_LIB})
 target_compile_definitions(strata_cann_probe PRIVATE STRATA_VERSION="0.1.56")
 
-# --- BEGIN Phase 1 (GEMM worker) -------------------------------------------
-# aclnn matmul (src/cann_gemm.{h,cpp}) and its standalone on-device test
-# (tests/test_cann_gemm.cpp). Self-contained: the coordinator merges this
-# block; it adds no target to the top-level build and changes nothing
-# above. The aclnn symbols (aclnnMatmul et al.) live in libopapi_nn.so,
-# and aclCreateTensor/aclDestroyTensor in libnnopbase.so — neither is
-# in libascendcl.so. The test's CPU reference uses OpenMP when found.
-find_library(STRATA_CANN_OPAPI_LIB NAMES opapi_nn
+# --- Phase 1: CANN aclnn ops (GEMM + GDN attention) ---
+# Both branches were written independently and each defined
+# STRATA_CANN_OPAPI_LIB for a different library; the merge renames
+# them apart (find_library caches by variable name, so sharing one
+# variable would link one target against the wrong .so).
+#   libopapi_nn.so: aclnnMatmul (GEMM)
+#   libopapi.so:    the elementwise aclnn ops (attention)
+#   libnnopbase.so: aclCreateTensor etc. (shared, found once)
+find_library(STRATA_CANN_OPAPI_NN_LIB NAMES opapi_nn
+  HINTS ${_cann_roots}
+  PATH_SUFFIXES lib64 lib
+  NO_DEFAULT_PATH
+)
+find_library(STRATA_CANN_OPAPI_LIB NAMES opapi
   HINTS ${_cann_roots}
   PATH_SUFFIXES lib64 lib
   NO_DEFAULT_PATH
@@ -79,15 +85,19 @@ find_library(STRATA_CANN_NNOPBASE_LIB NAMES nnopbase
   PATH_SUFFIXES lib64 lib
   NO_DEFAULT_PATH
 )
-if(NOT STRATA_CANN_OPAPI_LIB OR NOT STRATA_CANN_NNOPBASE_LIB)
+if(NOT STRATA_CANN_OPAPI_NN_LIB OR NOT STRATA_CANN_OPAPI_LIB OR NOT STRATA_CANN_NNOPBASE_LIB)
   message(FATAL_ERROR
-    "Strata CANN: libopapi_nn.so / libnnopbase.so not found under ASCEND_HOME_PATH / /usr/local/Ascend "
-    "(aclnnMatmul lives in the former, aclCreateTensor in the latter, neither in libascendcl).")
+    "Strata CANN: libopapi_nn.so / libopapi.so / libnnopbase.so not found under ASCEND_HOME_PATH / /usr/local/Ascend "
+    "(aclnnMatmul lives in opapi_nn, the elementwise aclnn ops in opapi, aclCreateTensor in nnopbase; none is in libascendcl).")
 endif()
+message(STATUS "Strata CANN: libopapi_nn found at ${STRATA_CANN_OPAPI_NN_LIB}")
+message(STATUS "Strata CANN: libopapi found at ${STRATA_CANN_OPAPI_LIB}")
+message(STATUS "Strata CANN: libnnopbase found at ${STRATA_CANN_NNOPBASE_LIB}")
 
+# GEMM (src/cann_gemm.{h,cpp}, tests/test_cann_gemm.cpp)
 add_library(strata_cann_gemm src/cann_gemm.cpp)
 target_include_directories(strata_cann_gemm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src PRIVATE ${STRATA_CANN_INCLUDE_DIR})
-target_link_libraries(strata_cann_gemm PUBLIC ${STRATA_CANN_ASCENDCL_LIB} ${STRATA_CANN_OPAPI_LIB} ${STRATA_CANN_NNOPBASE_LIB})
+target_link_libraries(strata_cann_gemm PUBLIC ${STRATA_CANN_ASCENDCL_LIB} ${STRATA_CANN_OPAPI_NN_LIB} ${STRATA_CANN_NNOPBASE_LIB})
 
 add_executable(test_cann_gemm tests/test_cann_gemm.cpp)
 target_include_directories(test_cann_gemm PRIVATE ${STRATA_CANN_INCLUDE_DIR})
@@ -100,4 +110,14 @@ if(OpenMP_CXX_FOUND)
   target_link_libraries(test_cann_gemm PRIVATE OpenMP::OpenMP_CXX)
   target_compile_definitions(test_cann_gemm PRIVATE STRATA_CANN_GEMM_TEST_OPENMP)
 endif()
-# --- END Phase 1 (GEMM worker) ---------------------------------------------
+
+# GDN attention + RMSNorm / SiLU / RoPE
+# (src/cann_attention.{h,cpp}, src/cann_elementwise.{h,cpp}, tests/test_cann_attention.cpp)
+add_library(strata_cann_attention src/cann_attention.cpp src/cann_elementwise.cpp)
+target_include_directories(strata_cann_attention PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
+                                                         ${STRATA_CANN_INCLUDE_DIR})
+target_link_libraries(strata_cann_attention PUBLIC ${STRATA_CANN_ASCENDCL_LIB} ${STRATA_CANN_OPAPI_LIB} ${STRATA_CANN_NNOPBASE_LIB})
+
+add_executable(test_cann_attention tests/test_cann_attention.cpp)
+target_link_libraries(test_cann_attention PRIVATE strata_cann_attention)
+# --- end Phase 1 ---
