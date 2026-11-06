@@ -1,3 +1,5 @@
+> **代码地图**：想快速了解这个项目的结构，先读 [UNDERSTAND.zh-CN.md](UNDERSTAND.zh-CN.md)（Understand-Anything 知识图谱 + 12 步阅读导览）。
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="apps/host/public/brand/strata-lockup-dark.svg">
