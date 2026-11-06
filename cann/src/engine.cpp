@@ -813,6 +813,10 @@ struct Model::Impl {
 
 Model::Model(const std::string & path, int64_t capacity) {
     const Gguf header(path);
+    const char * npu_only = std::getenv("STRATA_CANN_NPU_ONLY");
+    if (npu_only && std::string(npu_only) == "1" && header.arch() != "qwen4exp") {
+        throw Error("NPU_ONLY supports qwen4exp only; host compute fallback is disabled", -1);
+    }
     if (header.arch() == "qwen4exp") qwen38_ = std::make_unique<Qwen38Model>(path, capacity);
     else {
         if (header.arch() != "qwen35moe") throw Error("engine: unsupported architecture " + header.arch(), -1);

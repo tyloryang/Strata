@@ -2,8 +2,11 @@
 #include "strata/cann/engine.hpp"
 
 namespace strata::cann {
-// Native correctness path: CANN FP32 weight matmuls, host FP32 state/elementwise
-// operations. No Torch, ggml or external inference process is used.
+class Qwen38NpuModel;
+// Native Qwen3.8 dispatcher. STRATA_CANN_NPU_ONLY=1 selects device-resident
+// decoding and forward computation; the default retains the host reference.
+// In NPU mode step() returns an empty handle and top() consumes device hidden
+// state directly. No Torch, ggml or external inference process is used.
 class Qwen38Model {
 public:
     Qwen38Model(const std::string & path, int64_t capacity);
@@ -17,5 +20,8 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+    std::unique_ptr<Qwen38NpuModel> npu_impl_;
+#endif
 };
 }

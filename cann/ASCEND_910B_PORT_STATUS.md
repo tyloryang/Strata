@@ -1,7 +1,7 @@
 # 昇腾 910B2C 移植：结果与过程（Strata / CANN）
 
 更新时间：2026-11-05 12:40（Asia/Shanghai）
-服务器：`<用户>@<服务器地址> -p <端口>`
+服务器：`<user>@<host> -p 32222`
 
 ---
 
@@ -67,6 +67,7 @@
 | 编译 | gcc/g++ 12.3.1，cmake 3.27.9；**无 ninja、无 unzip** |
 | 外网 | pypi / modelscope 通；**GitHub 不通** |
 
+> SSH 凭据通过交互输入，不保存在文档中。
 
 ## 2. 移植进度
 
@@ -430,10 +431,10 @@ blk.0.post_attention_norm.weight F32 [2048]
 
 ```powershell
 # 18789（llama.cpp，实际使用）
-ssh -CNg -L 18789:127.0.0.1:18789 -p <端口> <用户>@<服务器地址>
+ssh -CNg -L 18789:127.0.0.1:18789 -p 32222 <user>@<host>
 
 # 再加上 18790（本引擎）就写成两行 -L
-ssh -CNg -L 18789:127.0.0.1:18789 -L 18790:127.0.0.1:18790 -p <端口> <用户>@<服务器地址>
+ssh -CNg -L 18789:127.0.0.1:18789 -L 18790:127.0.0.1:18790 -p 32222 <user>@<host>
 ```
 
 Windows 侧 `127.0.0.1:18789` 已监听：`/health` 200、`/props` 返回模型路径、
@@ -994,6 +995,21 @@ Okay, the user is asking for the capital of France. ... the capital is
 **这是真的在 NPU 上跑**——CPU 不可能有 1332 t/s 的预填。这一步的价值是：等大模型下完，
 不会卡在环境问题上。
 
+### 11.3.1 加载器认这个文件（下载到 32% 时验证的）
+
+在模型下到一半时就让 llama.cpp 去打开那个 `.incomplete` 文件。它没有报"未知架构"，而是：
+
+```
+E llama_model_load: error loading model: tensor 'blk.27.ffn_gate_exps.weight'
+  data is not within the file bounds, model is corrupted or incomplete
+```
+
+这句错误正是想要的答案：**架构、元数据、张量表、分片逻辑它全部接受**，只是读到文件末尾之外了
+（当时只有 24 GB）。
+
+所以剩下的风险不在"认不认这个模型"，而在"算不算得动"。这两件事的风险量级完全不同：
+前者失败只能换 llama.cpp 版本，后者是调参数。
+
 ### 11.4 两卡层切分
 
 用 0.6B 强制切开验证：
@@ -1083,3 +1099,124 @@ BF16/F16/F32 由 `tensor_load` 直读。解码器这一层不用动。
 
 三块真正的新工作：**PLE**（查表 + 卷积，表必须留 SSD）、**QSA**（选 key 的额外网络）、
 **HyperConnection**（全局结构改动）。其余是改常数。
+
+### 11.9 实测结果：模型能跑，但 llama.cpp 的 CANN 后端接不住这个模型
+
+下载完成（76.8 GB，两个分片），逐项测过之后的状态：
+
+**能跑的：**
+
+| 项 | 结果 |
+|---|---|
+| GGUF 完整性 | ✅ 加载成功，张量表全部对上 |
+| 纯 CPU 推理 | ✅ 输出连贯中文，**预填 18.9 t/s、生成 7.6 t/s**（8 线程） |
+| 0.6B 走 NPU | ✅ 预填 1332 t/s、生成 182 t/s |
+| `TOP_K` 算子（我补的） | ✅ `test-backend-ops` 18 个用例全过 |
+
+**跑不了的：Qwen3.8 走 NPU，卡在 llama.cpp 的 CANN 后端。**
+
+排查过程中修掉了一个**编译期**问题，又暴露出后端逐个算子的缺陷：
+
+1. **AMX 非法指令（已修）**
+   `GGML_NATIVE=ON` 让编译器按本机 CPUID 生成 AMX 指令，但内核没启用 AMX tile 状态，
+   第一条 `tileloadd` 就 `#UD`。用 `-DGGML_NATIVE=OFF` 重编解决，加载不再崩。
+
+2. **`Repeat` 的 Tile 内核起不来（未解决）**
+   ```
+   BinaryGetFunction failed, kernel_name=
+   OpName:[aclnnRepeat_0_TileAiCore] Op Tile has tiling and tiling parse funcs
+   ```
+   内核名是空的，CANN 找不到可执行的 kernel。
+
+3. **把 Repeat 放回 CPU 后，`ScatterUpdate` 内核执行失败（未解决）**
+   ```
+   Aicore kernel execute failed, fault kernel_name=ScatterUpdate_..._high_precision_880015000
+   ```
+
+4. **部分卸载会触发另一个断言**
+   `-ngl 1` 会撞上 `GGML_ASSERT(!is_matmul_weight(src))`（`ggml-cann.cpp:2149`，
+   跨后端拷贝 matmul 权重的路径）。所以只能全卸载或全不卸载。
+
+5. **把前两个算子都放回 CPU 之后，设备侧出现流错误（未解决）**
+   ```
+   ProcLogicCqReport: CQE warning, device_id=1, stream_id=49, sq sw status error
+   StarsResumeRtsq: sq already disable, stream_id=49
+   ```
+   第二张卡上的硬件队列报错，进程随后卡在等待里被超时杀掉。这已经不是能靠配置绕开的层次。
+
+**结论**：这不是配置问题，是 llama.cpp 的 CANN 后端在这种"14 种量化格式混用 + 51.2B 查表"
+的模型上还没有准备好。每修一个算子就露出下一个，最后落到设备队列错误——工作量不可预估，
+而且属于上游后端的活。
+
+**试过并排除的方向**（都有日志，不是猜的）：
+- 关掉 `TOP_K` 补丁（我加的）：错误不变，不是它
+- 关掉 NZ 权重格式（`GGML_CANN_WEIGHT_NZ=off`）：不变
+- 把 `FLASH_ATTN_EXT`/`MUL_MAT_ID`/`GATED_LINEAR_ATTN` 逐个放 CPU：不变
+- 把所有 matmul 放 CPU：不变
+- `-ngl 1` 部分卸载：撞 `is_matmul_weight` 断言，只能全卸载或全不卸载
+
+**对 Strata 的意义**：Strata 走自己的 GGUF 读取器和自己的 kernel，不依赖 ggml，
+所以这条路上的问题**不会**传到 Strata。但也意味着不能指望 llama.cpp 提供现成参考实现——
+只有 CPU 那份输出可以当标尺。
+
+---
+
+## 12. 移植进度（截至第 28 轮）
+
+这一节只写**验证过的事实**和**下一个具体动作**，不写计划性描述。
+
+### 12.1 已经完成的
+
+| 片 | 产物 | 验证方式 | 结果 |
+|---|---|---|---|
+| ModelConfig | `src/engine.cpp` 里的 `struct ModelConfig` + 派生函数 | `static_assert` 把 19 个常量钉死 | 编译期通过，数值未变 |
+| Qwen3.8 的形状 | 同文件里的 `kQwen38Q` | `static_assert(kQwen38Q.qkv_dim() == 10240)` 等 | 编译期通过 |
+| HyperConnection | `src/hc.cpp` + `tests/hc_parity.cpp` | 与双精度参考对比 | mixed 1.3e-6，combine 5.6e-6，inject 5.1e-4 |
+| 融合算子在 48 v 头 | 无需新代码 | `gdn_fused_parity 1 16 48 128 128 1` | state 3.29e-3、attn 一致（与 16/32 同量级） |
+
+### 12.2 没做但已确认可行的
+
+- **线性层的缓冲区参数化**：`gdn_step` 里 `kQkvDim`/`kValueDim` 的分配点要改成从配置读。
+  数量：`grep -c 'kQkvDim\|kValueDim' src/engine.cpp` 里绝大多数在 `gdn_step` 内。
+  风险已经降到"改常数"，因为算子本身在这个尺寸上验过了。
+- **MoE 512 选 10**：现有 `moe_ffn` 用 `kTopK`/`kExpertInter`，都是常量，改法同上。
+
+### 12.3 完全没有开始的
+
+- **PLE**：查表 + 门控 + 膨胀卷积。算法在 `QWEN38_PLE_QSA.md`，实现 0 行。
+- **QSA**：索引器 + 池化 + top-k + 掩码注意力。同上。
+- **把 HC 接进层循环**：`hc_mix`/`hc_combine` 写好了，但 `Model::step` 里还是
+  `attn_norm` + 普通残差的老路径。接线未做。
+
+### 12.4 下一个具体动作（照这个顺序）
+
+1. 把 `gdn_step` 的签名加上 `const ModelConfig & cfg`，函数体内 `kQkvDim` → `cfg.qkv_dim()`。
+   调用点只有 `Model::step` 一处。
+2. 同样处理 `moe_ffn`（`kExpertInter`、`kTopK`、`kHidden`）。
+3. 在 `Model::step` 里把 `attn_norm + 残差` 换成 `hc_mix` / `hc_combine`，残差状态从
+   `[hidden]` 变成 `[hc*hidden]`。
+4. 到这一步，Qwen3.8 的一次前向会在 PLE 层（blk.1 之后）缺张量而失败——**这是预期的**，
+   失败点会精确告诉我们 PLE 该插在哪。
+
+### 12.5 环境事实（换机器时照抄）
+
+```
+构建 llama.cpp + CANN（本次踩过的坑都在这）
+  cmake -DGGML_CANN=ON -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF   ← NATIVE=OFF 必须
+  缺头文件：CANN 9.0 没有 aclnn_fused_infer_attention_score_v2.h，
+            从 ops-transformer 仓库取，放进 $ASCEND_HOME_PATH/include/aclnnop/
+  LD_LIBRARY_PATH 必须含 /usr/local/Ascend/driver/lib64/driver，否则 libascend_hal.so 找不到
+
+构建 strata/cann
+  cmake -S cann -B build -DCMAKE_BUILD_TYPE=Release     （要有 ../include 和 third_party/ggml）
+  依赖上级仓库的 include/strata/artifact 和 core，打包时别只带 cann/
+
+模型
+  /data/models/IQ3_XXS/IQ3_XXS/*.gguf      47.0 GB + 28.8 GB（第二个只有 per_layer_token_embd）
+  CPU 参考输出：cann/fixtures/qwen38_cpu_reference.md
+```
+
+### 12.6 一句话现状
+
+**模型是好的，硬件是好的，量化解码是好的；llama.cpp 的 CANN 后端跑不动它；
+Strata 这边把形状、归一化/残差机制、以及最险的融合算子都验证过了，剩下的是接线和两块新算法。**

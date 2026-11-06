@@ -1,0 +1,17 @@
+# Included by cann/CMakeLists.txt when the NPU-only path is enabled.
+set(ASCEND_CANN_PACKAGE_PATH "${ASCEND_HOME_PATH}" CACHE PATH "CANN package for AscendC")
+set(SOC_VERSION "Ascend910B2" CACHE STRING "AscendC target SoC")
+set(RUN_MODE "npu" CACHE STRING "AscendC execution target")
+
+set(_strata_ascendc_cmake "")
+foreach(_suffix x86_64-linux/tikcpp tools/tikcpp compiler/tikcpp)
+  if(EXISTS "${ASCEND_CANN_PACKAGE_PATH}/${_suffix}/ascendc_kernel_cmake/ascendc.cmake")
+    set(_strata_ascendc_cmake "${ASCEND_CANN_PACKAGE_PATH}/${_suffix}/ascendc_kernel_cmake/ascendc.cmake")
+    break()
+  endif()
+endforeach()
+if(NOT _strata_ascendc_cmake)
+  message(FATAL_ERROR "AscendC kernel toolchain not found under ${ASCEND_CANN_PACKAGE_PATH}")
+endif()
+include("${_strata_ascendc_cmake}")
+ascendc_library(strata_cann_kernels STATIC dequant_kernel.cpp)

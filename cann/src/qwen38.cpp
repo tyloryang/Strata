@@ -4,6 +4,9 @@
 #include "strata/cann/gguf.hpp"
 #include "strata/cann/ops.hpp"
 #include "strata/cann/tensor_load.hpp"
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+#include "strata/cann/qwen38_npu.hpp"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -366,10 +369,32 @@ struct Qwen38Model::Impl {
     }
 };
 
-Qwen38Model::Qwen38Model(const std::string &path,int64_t cap):impl_(std::make_unique<Impl>(path,cap)){}
+Qwen38Model::Qwen38Model(const std::string &path,int64_t cap) {
+    const char* mode = std::getenv("STRATA_CANN_NPU_ONLY");
+    if (mode && std::string(mode) == "1") {
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+        npu_impl_ = std::make_unique<Qwen38NpuModel>(path, cap);
+#else
+        throw std::runtime_error("STRATA_CANN_NPU_ONLY=1 requires a build configured with -DSTRATA_CANN_NPU_ONLY=ON; CPU fallback is disabled");
+#endif
+    } else {
+        impl_ = std::make_unique<Impl>(path, cap);
+    }
+}
 Qwen38Model::~Qwen38Model()=default;
-std::vector<float> Qwen38Model::step(int64_t token,int64_t position){return impl_->step(token,position);}
+std::vector<float> Qwen38Model::step(int64_t token,int64_t position){
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+    if (npu_impl_) { npu_impl_->step(token, position); return {}; }
+#endif
+    return impl_->step(token,position);
+}
 Model::Top Qwen38Model::top(const std::vector<float> &hidden,int64_t k){
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+    if (npu_impl_) {
+        require(hidden.empty(), "NPU mode expects device-resident hidden state");
+        return npu_impl_->top(k);
+    }
+#endif
     const auto logits=impl_->linear("output.weight",hidden);
     if(const char *dir=std::getenv("STRATA_CANN_TRACE")) {
         const auto name=std::filesystem::path(dir)/("p"+std::to_string(impl_->position-1)+"-logits.f32");
@@ -384,8 +409,28 @@ Model::Top Qwen38Model::top(const std::vector<float> &hidden,int64_t k){
             (unsigned long long)impl_->matmuls,(unsigned long long)impl_->hits,(unsigned long long)impl_->misses,impl_->used/1073741824.0);
     return result;
 }
-void Qwen38Model::reset(){impl_->tokens.clear();impl_->states.clear();impl_->states.resize(impl_->layers);impl_->position=0;}
-int64_t Qwen38Model::capacity()const{return impl_->cap;}
-int64_t Qwen38Model::vocab()const{return impl_->vocab_count;}
-int64_t Qwen38Model::cache_bytes()const{return impl_->used;}
+void Qwen38Model::reset(){
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+    if (npu_impl_) { npu_impl_->reset(); return; }
+#endif
+    impl_->tokens.clear();impl_->states.clear();impl_->states.resize(impl_->layers);impl_->position=0;
+}
+int64_t Qwen38Model::capacity()const{
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+    if (npu_impl_) return npu_impl_->capacity();
+#endif
+    return impl_->cap;
+}
+int64_t Qwen38Model::vocab()const{
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+    if (npu_impl_) return npu_impl_->vocab();
+#endif
+    return impl_->vocab_count;
+}
+int64_t Qwen38Model::cache_bytes()const{
+#ifdef STRATA_CANN_HAS_NPU_GRAPH
+    if (npu_impl_) return npu_impl_->cache_bytes();
+#endif
+    return impl_->used;
+}
 }

@@ -1,0 +1,40 @@
+{
+  "backend": "strata-cann-native",
+  "device": "npu:0,npu:1",
+  "devices": [
+    0,
+    1
+  ],
+  "npu_only": true,
+  "packed_weights": true,
+  "fused_matvec": true,
+  "dense_cache": true,
+  "deferred_submission": true,
+  "grouped_experts": true,
+  "budget_gib": 3.0,
+  "prompt_tokens": [
+    760,
+    6511,
+    314,
+    9338,
+    369
+  ],
+  "tokens": [
+    11751,
+    13,
+    561,
+    6511,
+    314,
+    9564,
+    369,
+    19241
+  ],
+  "text": " Paris. The capital of Germany is Berlin",
+  "timing": {
+    "prefill_s": 0.915546,
+    "decode_s": 0.636363,
+    "generated": 8.0,
+    "decode_tok_s": 11.000016
+  },
+  "execution": "AscendC weight decoding; CANN device activations and state; host I/O and scheduling"
+}

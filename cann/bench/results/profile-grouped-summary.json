@@ -1,0 +1,165 @@
+{
+  "scope": "One warm decode, after model construction and one initial step/top.",
+  "files": [
+    "profile-grouped/PROF_000001_20261106050919198_00558389LCEEOMPG/mindstudio_profiler_output/op_summary_20261106050926.csv"
+  ],
+  "tasks": 5262,
+  "devices": {
+    "0": 2647,
+    "1": 2615
+  },
+  "task_types": {
+    "AI_VECTOR_CORE": 4012,
+    "MIX_AIV": 429,
+    "AI_CORE": 725,
+    "MIX_AIC": 96
+  },
+  "aicpu_tasks": 0,
+  "summed_task_duration_us": 88500.44199999985,
+  "groups": {
+    "grouped_matvec": {
+      "calls": 144,
+      "duration_us": 41619.403999999995
+    },
+    "MatMulV2": {
+      "calls": 629,
+      "duration_us": 24769.40900000001
+    },
+    "Mul": {
+      "calls": 1687,
+      "duration_us": 7329.718999999994
+    },
+    "ReduceMean": {
+      "calls": 257,
+      "duration_us": 3835.5140000000033
+    },
+    "MatMulV3": {
+      "calls": 96,
+      "duration_us": 2325.2729999999992
+    },
+    "Add": {
+      "calls": 511,
+      "duration_us": 1370.9840000000013
+    },
+    "GatherV3": {
+      "calls": 96,
+      "duration_us": 1115.6189999999995
+    },
+    "Slice": {
+      "calls": 217,
+      "duration_us": 1104.0690000000002
+    },
+    "BatchMatMulV2": {
+      "calls": 96,
+      "duration_us": 894.4879999999999
+    },
+    "Sigmoid": {
+      "calls": 326,
+      "duration_us": 644.6669999999999
+    },
+    "ReduceSum": {
+      "calls": 121,
+      "duration_us": 576.8380000000002
+    },
+    "Swish": {
+      "calls": 230,
+      "duration_us": 418.7809999999999
+    },
+    "Rsqrt": {
+      "calls": 232,
+      "duration_us": 329.15200000000004
+    },
+    "Transpose": {
+      "calls": 24,
+      "duration_us": 321.39799999999997
+    },
+    "expert_sum": {
+      "calls": 48,
+      "duration_us": 267.588
+    },
+    "single_matvec": {
+      "calls": 48,
+      "duration_us": 227.56600000000003
+    },
+    "SoftmaxV2": {
+      "calls": 60,
+      "duration_us": 208.34999999999994
+    },
+    "Cast": {
+      "calls": 109,
+      "duration_us": 205.92900000000003
+    },
+    "TopKV2": {
+      "calls": 49,
+      "duration_us": 200.54700000000005
+    },
+    "Sub": {
+      "calls": 61,
+      "duration_us": 151.78399999999996
+    },
+    "ConcatD": {
+      "calls": 26,
+      "duration_us": 113.54600000000003
+    },
+    "RealDiv": {
+      "calls": 48,
+      "duration_us": 87.40499999999999
+    },
+    "strata_dequant_kernel": {
+      "calls": 17,
+      "duration_us": 81.54200000000002
+    },
+    "SoftplusV2": {
+      "calls": 36,
+      "duration_us": 80.02199999999999
+    },
+    "Exp": {
+      "calls": 36,
+      "duration_us": 60.56299999999998
+    },
+    "Sin": {
+      "calls": 24,
+      "duration_us": 53.221
+    },
+    "Cos": {
+      "calls": 24,
+      "duration_us": 50.74100000000001
+    },
+    "ReduceLogSumExp": {
+      "calls": 1,
+      "duration_us": 17.181
+    },
+    "ReduceMax": {
+      "calls": 1,
+      "duration_us": 16.941
+    },
+    "strata_ple_rows_kernel": {
+      "calls": 1,
+      "duration_us": 9.26
+    },
+    "ClipByValueV2": {
+      "calls": 1,
+      "duration_us": 2.801
+    },
+    "Abs": {
+      "calls": 2,
+      "duration_us": 2.8
+    },
+    "Equal": {
+      "calls": 1,
+      "duration_us": 2.1
+    },
+    "MaskedFill": {
+      "calls": 1,
+      "duration_us": 2.1
+    },
+    "Sign": {
+      "calls": 1,
+      "duration_us": 1.7
+    },
+    "Sqrt": {
+      "calls": 1,
+      "duration_us": 1.44
+    }
+  }
+}

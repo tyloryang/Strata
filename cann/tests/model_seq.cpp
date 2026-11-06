@@ -68,6 +68,10 @@ int sample(const std::vector<std::pair<float, int>> & best, float temp, std::mt1
 
 // One request: prefill, then generate, printing the same lines the scripts parse.
 void run(Model & model, const std::vector<int64_t> & prompt, int64_t n_gen, float temp, bool verbose) {
+    const char * npu_only = std::getenv("STRATA_CANN_NPU_ONLY");
+    if (npu_only && std::string(npu_only) == "1" && temp > 0) {
+        throw std::runtime_error("NPU_ONLY currently requires temperature 0; host stochastic sampling is disabled");
+    }
     model.reset();
     const auto t0 = std::chrono::steady_clock::now();
     std::vector<float> hidden;
