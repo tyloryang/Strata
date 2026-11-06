@@ -1,5 +1,6 @@
 #include "aclnn_call.hpp"
 #include "strata/cann/ops.hpp"
+#include "strata/kernels/f16_bits.hpp"
 
 #include <aclnn/acl_meta.h>
 #include <aclnnop/aclnn_add.h>
@@ -23,6 +24,7 @@
 #include <cstring>
 #include <memory>
 #include <random>
+#include <unordered_map>
 
 namespace strata::cann {
 namespace {
@@ -88,58 +90,76 @@ struct Exec {
     }
 };
 
-// One workspace buffer for the whole process. Allocating it per op cost milliseconds and made a
-// 40-layer token look like 33 s; the ops themselves are microseconds.
-void * g_ws = nullptr;
-size_t g_ws_size = 0;
+// Workspaces are reused per device. A pointer allocated on one NPU must never
+// be handed to an executor launched in another NPU's context.
+struct Workspace { void * data = nullptr; size_t size = 0; };
+std::unordered_map<int, Workspace> g_workspaces;
 
 // Profiling: a single op measures 0.043 ms in isolation while a token takes seconds, so the cost
 // has to be attributed rather than guessed at.
 long long g_op_count = 0;
 double g_op_seconds = 0.0;
+long long g_deferred_op_count = 0;
+double g_enqueue_seconds = 0.0;
 
-void ensure_workspace(size_t need) {
-    if (need <= g_ws_size) {
-        return;
+void release_tensor(Stream& stream, aclTensor* value) {
+    defer_device_cleanup(stream.device_ordinal(), [value] { aclDestroyTensor(value); });
+}
+void release_scalar(Stream& stream, aclScalar* value) {
+    defer_device_cleanup(stream.device_ordinal(), [value] { aclDestroyScalar(value); });
+}
+void release_axes(Stream& stream, aclIntArray* value) {
+    defer_device_cleanup(stream.device_ordinal(), [value] { aclDestroyIntArray(value); });
+}
+
+void * ensure_workspace(Stream & stream, size_t need) {
+    stream.activate();
+    auto & workspace = g_workspaces[stream.device_ordinal()];
+    if (need <= workspace.size) {
+        return need ? workspace.data : nullptr;
     }
     // Grow generously: a reallocation has to wait for the queue, and the ops themselves only need
     // a few hundred kilobytes. Freeing a buffer that a queued kernel still points at corrupts it.
     const size_t want = std::max<size_t>(need, 64u << 20);
-    if (g_ws) {
-        aclrtSynchronizeDevice();
-        aclrtFree(g_ws);
-        g_ws = nullptr;
-        g_ws_size = 0;
+    if (workspace.data) {
+        stream.synchronize();
+        check_acl(aclrtFree(workspace.data), "aclrtFree(workspace grow)");
+        workspace.data = nullptr;
+        workspace.size = 0;
     }
-    check_acl(aclrtMalloc(&g_ws, want, ACL_MEM_MALLOC_HUGE_FIRST), "aclrtMalloc(workspace)");
-    g_ws_size = want;
+    check_acl(aclrtMalloc(&workspace.data, want, ACL_MEM_MALLOC_HUGE_FIRST), "aclrtMalloc(workspace)");
+    workspace.size = want;
+    return workspace.data;
 }
 
 // Each op follows the same two-phase aclnn contract; this template keeps that boilerplate in one place.
 template <typename GetWs, typename Launch>
-void execute_impl(Stream & stream, GetWs get_ws, Launch launch, const char * what) {
+void execute_impl(Stream & stream, GetWs get_ws, Launch launch, const char * what,
+                  bool deferred_metadata = true) {
+    stream.activate();
     uint64_t ws_size = 0;
     aclOpExecutor * exec = nullptr;
     check_status(get_ws(&ws_size, &exec), what);
-    ensure_workspace((size_t) ws_size);
-    void * ws = ws_size > 0 ? g_ws : nullptr;
+    void * ws = ensure_workspace(stream, (size_t) ws_size);
     const auto op_t0 = std::chrono::steady_clock::now();
+    stream.submitted();
     check_status(launch(ws, ws_size, exec, (aclrtStream) stream.handle()), what);
-    // Keep this: host uploads go through aclrtMemcpy, which is not ordered against queued kernels,
-    // so without a sync per op a later upload can overwrite a buffer an earlier kernel still reads.
-    // STRATA_CANN_NO_SYNC exists only to measure what the sync costs; it is not safe for real runs.
-    static const bool no_sync = getenv("STRATA_CANN_NO_SYNC") != nullptr;
-    if (!no_sync) {
+    // Scoped deferral permits FIFO reuse of both pooled tensors and workspace.
+    // Every non-stream copy fences that device; metadata is released after drain.
+    if (stream.deferred() && deferred_metadata) {
+        ++g_deferred_op_count;
+        g_enqueue_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - op_t0).count();
+    } else {
         stream.synchronize();
+        ++g_op_count;
+        g_op_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - op_t0).count();
     }
-    g_op_count += 1;
-    g_op_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - op_t0).count();
 }
 
 } // namespace
 
-void execute(Stream & stream, GetWs get_ws, Launch launch, const char * what) {
-    execute_impl(stream, std::move(get_ws), std::move(launch), what);
+void execute(Stream & stream, GetWs get_ws, Launch launch, const char * what, bool deferred_metadata) {
+    execute_impl(stream, std::move(get_ws), std::move(launch), what, deferred_metadata);
 }
 
 // Profiling counters, printed when the workspace is released. This exists because a single op
@@ -149,51 +169,38 @@ void print_op_stats() {
         printf("ops: %lld calls, %.3f s total, %.3f ms each\n", g_op_count, g_op_seconds,
                1000.0 * g_op_seconds / (double) g_op_count);
     }
+    if (g_deferred_op_count > 0 && getenv("STRATA_CANN_STATS") != nullptr)
+        printf("ops deferred: %lld calls, %.6f s launch enqueue only (not device execution)\n",
+               g_deferred_op_count, g_enqueue_seconds);
+}
+
+void release_workspace_for_device(int ordinal) {
+    const auto it = g_workspaces.find(ordinal);
+    if (it == g_workspaces.end()) return;
+    check_acl(aclrtSetDevice(ordinal), "aclrtSetDevice(workspace cleanup)");
+    if (it->second.data) {
+        check_acl(aclrtSynchronizeDevice(), "aclrtSynchronizeDevice(workspace cleanup)");
+        check_acl(aclrtFree(it->second.data), "aclrtFree(workspace cleanup)");
+    }
+    g_workspaces.erase(it);
 }
 
 void release_workspace() {
     print_op_stats();
-    if (g_ws) {
-        aclrtFree(g_ws);
-        g_ws = nullptr;
-        g_ws_size = 0;
-    }
+    while (!g_workspaces.empty()) release_workspace_for_device(g_workspaces.begin()->first);
 }
 
 void f32_to_f16(const float * src, uint16_t * dst, size_t n) {
+    // Match the engine's IEEE round-to-nearest-even conversion, including
+    // subnormals. NaNs become a signed canonical quiet NaN (payload discarded).
     for (size_t i = 0; i < n; ++i) {
-        uint32_t x;
-        memcpy(&x, &src[i], 4);
-        uint32_t sign = (x >> 16) & 0x8000u;
-        int32_t exp = (int32_t) ((x >> 23) & 0xff) - 127;
-        uint32_t man = x & 0x7fffffu;
-        uint16_t out;
-        if (exp > 15) {
-            out = (uint16_t) (sign | 0x7c00u);
-        } else if (exp < -14) {
-            out = (uint16_t) sign;
-        } else {
-            out = (uint16_t) (sign | ((uint32_t) (exp + 15) << 10) | (man >> 13));
-        }
-        dst[i] = out;
+        dst[i] = strata::kernels::f16_from_f32(src[i]);
     }
 }
 
 void f16_to_f32(const uint16_t * src, float * dst, size_t n) {
     for (size_t i = 0; i < n; ++i) {
-        uint16_t h = src[i];
-        uint32_t sign = (h >> 15) & 1u;
-        uint32_t exp = (h >> 10) & 0x1fu;
-        uint32_t man = h & 0x3ffu;
-        float v;
-        if (exp == 0) {
-            v = std::ldexp((float) man, -24);
-        } else if (exp == 31) {
-            v = man ? NAN : INFINITY;
-        } else {
-            v = std::ldexp((float) (man | 0x400u), (int) exp - 25);
-        }
-        dst[i] = sign ? -v : v;
+        dst[i] = strata::kernels::f32_from_f16(src[i]);
     }
 }
 
@@ -214,9 +221,9 @@ void matmul(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
             return aclnnMatmul(ws, ws_size, ex, s);
         },
         "aclnnMatmul");
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 
 // ---- batched forms, one call for a whole head batch ----
@@ -236,9 +243,9 @@ void bmm(Stream & stream, const Tensor & a, const Tensor & c, Tensor & out) {
             return aclnnMatmul(ws, ws_size, ex, s);
         },
         "aclnnMatmul(batched)");
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 
 void mul_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
@@ -252,9 +259,9 @@ void mul_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out
             return aclnnMul(ws, ws_size, ex, s);
         },
         "aclnnMul(batched)");
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 
 void add_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
@@ -272,10 +279,10 @@ void add_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out
             return aclnnAdd(ws, ws_size, ex, s);
         },
         "aclnnAdd(batched)");
-    aclDestroyScalar(alpha);
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_scalar(stream,alpha);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 
 void sub_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
@@ -293,10 +300,10 @@ void sub_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out
             return aclnnAdd(ws, ws_size, ex, s);
         },
         "aclnnAdd(sub, batched)");
-    aclDestroyScalar(alpha);
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_scalar(stream,alpha);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 // out = cast(x) to `dst_type`, elementwise; the only op here whose types may differ
 void cast(Stream & stream, const Tensor & x, DType dst_type, Tensor & out) {
@@ -310,8 +317,8 @@ void cast(Stream & stream, const Tensor & x, DType dst_type, Tensor & out) {
             return aclnnCast(ws, ws_size, ex, s);
         },
         "aclnnCast");
-    aclDestroyTensor(tx);
-    aclDestroyTensor(ty);
+    release_tensor(stream,tx);
+    release_tensor(stream,ty);
 }
 
 // The k largest values of a [1, n] row and their indices, computed on the device.
@@ -331,9 +338,9 @@ void topk(Stream & stream, const Tensor & x, int64_t k, int64_t dim, Tensor & va
             return aclnnTopk(ws, ws_size, ex, s);
         },
         "aclnnTopk");
-    aclDestroyTensor(tx);
-    aclDestroyTensor(tv);
-    aclDestroyTensor(ti);
+    release_tensor(stream,tx);
+    release_tensor(stream,tv);
+    release_tensor(stream,ti);
 }
 
 // log(sum(exp(x))) over the row, in one call. The partition has to come from every logit, so this
@@ -352,9 +359,9 @@ void logsumexp(Stream & stream, const Tensor & x, int64_t dim, Tensor & out) {
             return aclnnLogSumExp(ws, ws_size, ex, s);
         },
         "aclnnLogSumExp");
-    aclDestroyIntArray(arr);
-    aclDestroyTensor(tx);
-    aclDestroyTensor(to);
+    release_axes(stream,arr);
+    release_tensor(stream,tx);
+    release_tensor(stream,to);
 }
 
 void rms_norm(Stream & stream, const Tensor & x, const Tensor & gamma, double eps, Tensor & out) {
@@ -378,10 +385,10 @@ void rms_norm(Stream & stream, const Tensor & x, const Tensor & gamma, double ep
             return aclnnRmsNorm(ws, ws_size, ex, s);
         },
         "aclnnRmsNorm");
-    aclDestroyTensor(trstd);
-    aclDestroyTensor(tx);
-    aclDestroyTensor(tg);
-    aclDestroyTensor(ty);
+    release_tensor(stream,trstd);
+    release_tensor(stream,tx);
+    release_tensor(stream,tg);
+    release_tensor(stream,ty);
 }
 
 void silu(Stream & stream, const Tensor & x, Tensor & out) {
@@ -394,8 +401,8 @@ void silu(Stream & stream, const Tensor & x, Tensor & out) {
             return aclnnSilu(ws, ws_size, ex, s);
         },
         "aclnnSilu");
-    aclDestroyTensor(tx);
-    aclDestroyTensor(ty);
+    release_tensor(stream,tx);
+    release_tensor(stream,ty);
 }
 
 void add(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
@@ -411,10 +418,10 @@ void add(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
             return aclnnAdd(ws, ws_size, ex, s);
         },
         "aclnnAdd");
-    aclDestroyScalar(alpha);
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_scalar(stream,alpha);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 
 void softmax(Stream & stream, const Tensor & x, Tensor & out) {
@@ -427,8 +434,8 @@ void softmax(Stream & stream, const Tensor & x, Tensor & out) {
             return aclnnSoftmax(ws, ws_size, ex, s);
         },
         "aclnnSoftmax");
-    aclDestroyTensor(tx);
-    aclDestroyTensor(ty);
+    release_tensor(stream,tx);
+    release_tensor(stream,ty);
 }
 
 
@@ -440,8 +447,8 @@ void exp(Stream & stream, const Tensor & x, Tensor & out) {
         [&](uint64_t * ws, aclOpExecutor ** ex) { return aclnnExpGetWorkspaceSize(tx, ty, ws, ex); },
         [&](void * ws, uint64_t ws_size, aclOpExecutor * ex, aclrtStream s) { return aclnnExp(ws, ws_size, ex, s); },
         "aclnnExp");
-    aclDestroyTensor(tx);
-    aclDestroyTensor(ty);
+    release_tensor(stream,tx);
+    release_tensor(stream,ty);
 }
 
 void muls(Stream & stream, const Tensor & x, float scalar, Tensor & out) {
@@ -453,9 +460,9 @@ void muls(Stream & stream, const Tensor & x, float scalar, Tensor & out) {
         [&](uint64_t * ws, aclOpExecutor ** ex) { return aclnnMulsGetWorkspaceSize(tx, alpha, ty, ws, ex); },
         [&](void * ws, uint64_t ws_size, aclOpExecutor * ex, aclrtStream s) { return aclnnMuls(ws, ws_size, ex, s); },
         "aclnnMuls");
-    aclDestroyScalar(alpha);
-    aclDestroyTensor(tx);
-    aclDestroyTensor(ty);
+    release_scalar(stream,alpha);
+    release_tensor(stream,tx);
+    release_tensor(stream,ty);
 }
 
 void sub(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
@@ -469,10 +476,10 @@ void sub(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
         [&](uint64_t * ws, aclOpExecutor ** ex) { return aclnnSubGetWorkspaceSize(ta, tb, alpha, tc, ws, ex); },
         [&](void * ws, uint64_t ws_size, aclOpExecutor * ex, aclrtStream s) { return aclnnSub(ws, ws_size, ex, s); },
         "aclnnSub");
-    aclDestroyScalar(alpha);
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_scalar(stream,alpha);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 
 void mul(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
@@ -484,9 +491,9 @@ void mul(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
         [&](uint64_t * ws, aclOpExecutor ** ex) { return aclnnMulGetWorkspaceSize(ta, tb, tc, ws, ex); },
         [&](void * ws, uint64_t ws_size, aclOpExecutor * ex, aclrtStream s) { return aclnnMul(ws, ws_size, ex, s); },
         "aclnnMul");
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 
 void div(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
@@ -498,9 +505,9 @@ void div(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out) {
         [&](uint64_t * ws, aclOpExecutor ** ex) { return aclnnDivGetWorkspaceSize(ta, tb, tc, ws, ex); },
         [&](void * ws, uint64_t ws_size, aclOpExecutor * ex, aclrtStream s) { return aclnnDiv(ws, ws_size, ex, s); },
         "aclnnDiv");
-    aclDestroyTensor(ta);
-    aclDestroyTensor(tb);
-    aclDestroyTensor(tc);
+    release_tensor(stream,ta);
+    release_tensor(stream,tb);
+    release_tensor(stream,tc);
 }
 
 void sigmoid(Stream & stream, const Tensor & x, Tensor & out) {

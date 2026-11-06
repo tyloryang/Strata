@@ -8,11 +8,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace strata::cann {
+struct DeviceLifetime;
 
 // Any ACL failure, with the numeric code and the call that produced it.
 class Error : public std::runtime_error {
@@ -40,7 +44,8 @@ struct DeviceInfo {
 // Throws Error when the ordinal does not exist.
 DeviceInfo device_info(int ordinal = 0);
 
-// Owns aclrtSetDevice/aclrtResetDevice for one ordinal.
+// Shares the device context lifetime with its streams and allocations. The last
+// owner releases device-local caches before aclrtResetDevice.
 class Device {
 public:
     explicit Device(int ordinal = 0);
@@ -49,9 +54,12 @@ public:
     Device & operator=(const Device &) = delete;
 
     int ordinal() const { return ordinal_; }
+    void activate() const;
 
 private:
+    friend class Stream;
     int ordinal_;
+    std::shared_ptr<DeviceLifetime> lifetime_;
 };
 
 // Owns one aclrtStream.
@@ -63,15 +71,57 @@ public:
     Stream & operator=(const Stream &) = delete;
 
     void synchronize() const;
-    void * handle() const { return stream_; }
+    // Explicit opt-in batching. Only one stream on a device may enqueue while
+    // this mode is active. Host copies and memset drain the owning stream.
+    void begin_deferred();
+    void end_deferred();
+    bool deferred() const { return deferred_; }
+    void submitted() const;
+    bool pending() const { return pending_; }
+    void defer_cleanup(std::function<void()> cleanup) const;
+    int device_ordinal() const { return ordinal_; }
+    void activate() const;
+    void * handle() const { activate(); return stream_; }
 
 private:
     void * stream_ = nullptr;
+    int ordinal_ = -1;
+    std::shared_ptr<DeviceLifetime> lifetime_;
+    bool deferred_ = false;
+    std::thread::id deferred_thread_;
+    mutable bool pending_ = false;
+    mutable std::vector<std::function<void()>> cleanups_;
+    mutable uint64_t deferred_submissions_ = 0, deferred_drains_ = 0, deferred_cleanups_ = 0;
+    mutable double deferred_wait_seconds_ = 0;
 };
+
+class DeferredScope {
+public:
+    explicit DeferredScope(Stream& stream, bool enabled = true);
+    ~DeferredScope();
+    DeferredScope(const DeferredScope&) = delete;
+    DeferredScope& operator=(const DeferredScope&) = delete;
+    void finish();
+private:
+    Stream* stream_ = nullptr;
+};
+
+// Fence only an active deferred stream, preserving the caller's device context.
+void fence_device(int ordinal);
+// Metadata stays alive until the corresponding queued work has completed.
+void defer_device_cleanup(int ordinal, std::function<void()> cleanup);
+void zero_device(void* pointer, size_t bytes, int ordinal);
 
 // Raw copies for a pointer inside a larger tensor (a row, a scalar).
 void copy_to_host(const void * device_ptr, void * host, size_t bytes);
 void copy_to_device(void * device_ptr, const void * host, size_t bytes);
+
+// Pure device-to-device copies. Cross-device copies require supported P2P and
+// throw if access cannot be enabled; there is no host staging fallback. Sources
+// and destinations are synchronized, and the destination remains current.
+bool peer_access_supported(int dst_device, int src_device);
+void enable_peer_access(int dst_device, int src_device);
+void copy_peer(void * dst, int dst_device, const void * src, int src_device, size_t bytes);
 
 // Owns one aclrtMalloc block.
 class Buffer {
@@ -83,6 +133,8 @@ public:
 
     void * data() const { return data_; }
     size_t size() const { return bytes_; }
+    int device_ordinal() const { return ordinal_; }
+    void activate() const;
 
     void copy_from_host(const void * host, size_t bytes);
     void copy_to_host(void * host, size_t bytes) const;
@@ -90,6 +142,10 @@ public:
 private:
     void * data_ = nullptr;
     size_t bytes_ = 0;
+    int ordinal_ = -1;
+    std::shared_ptr<DeviceLifetime> lifetime_;
 };
+
+void copy_peer(Buffer & dst, const Buffer & src, size_t bytes, size_t dst_offset = 0, size_t src_offset = 0);
 
 } // namespace strata::cann

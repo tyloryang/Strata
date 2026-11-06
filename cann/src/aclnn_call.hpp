@@ -1,8 +1,8 @@
 // cann/src/aclnn_call.hpp - the one place that knows how to run a two-phase aclnn op.
 //
-// Every operator in this project shares a single workspace buffer and synchronizes once after the
-// launch. ops.cpp owns that machinery; operators implemented in other files (the fused delta net)
-// include this instead of duplicating it.
+// Operators reuse one workspace per device. Synchronous completion is the
+// default; audited wrappers may opt into a stream's explicit deferred scope.
+// ops.cpp owns that machinery so external wrappers do not duplicate it.
 #pragma once
 
 #include <acl/acl.h>
@@ -18,6 +18,8 @@ namespace strata::cann {
 using GetWs = std::function<aclnnStatus(uint64_t *, aclOpExecutor **)>;
 using Launch = std::function<aclnnStatus(void *, uint64_t, aclOpExecutor *, aclrtStream)>;
 
-void execute(Stream & stream, GetWs get_ws, Launch launch, const char * what);
+// Only wrappers that defer all ACL descriptor destruction may opt into queueing.
+void execute(Stream & stream, GetWs get_ws, Launch launch, const char * what,
+             bool deferred_metadata = false);
 
 } // namespace strata::cann

@@ -1,10 +1,17 @@
 # `cann/` - the Ascend port of the engine
 
-Qwen3.8-Flash-Next IQ3_XXS now has a native C++ path through `model_seq`:
-[`QWEN38_NATIVE_CANN_CN.md`](QWEN38_NATIVE_CANN_CN.md) gives the commands and
-910B2C measurements. Weight projections use CANN FP32; recurrent state and
-elementwise operations currently use host FP32. Eight greedy tokens matched
-the independent Torch path. This is a correctness port, not a fast serving backend.
+Qwen3.8-Flash-Next IQ3_XXS has an opt-in device-resident native C++ path through
+`model_seq`: [`QWEN38_NPU_ONLY_CN.md`](QWEN38_NPU_ONLY_CN.md) gives the build and
+run commands. AscendC decodes packed weights on the NPU; activations, recurrent
+state, attention and routing use CANN device tensors. The host handles file I/O,
+tokenization and dispatch. Tiled DMA and vector decoding now reach a measured
+median of 1.93 token/s on one 910B2C with a 40 GiB decoded-weight cache; see
+[`QWEN38_NPU_OPT_CN.md`](QWEN38_NPU_OPT_CN.md) for the controlled comparisons,
+correctness checks and profiling evidence.
+
+The default CPU/NPU reference path and its earlier measurements remain in
+[`QWEN38_NATIVE_CANN_CN.md`](QWEN38_NATIVE_CANN_CN.md). Set both the build option
+and runtime switch for the NPU-only path; it rejects unsupported execution modes.
 
 The separate Torch/CANN HTTP backend remains documented in
 [`QWEN38_IQ3_XXS_ASCEND.md`](QWEN38_IQ3_XXS_ASCEND.md) and

@@ -1,5 +1,8 @@
 # Strata 原生 C++ 在 910B2C 上运行 IQ3_XXS
 
+如需模型张量计算全部在 NPU 执行，请使用
+[NPU-only 路径](QWEN38_NPU_ONLY_CN.md)。本页保留此前 CPU/NPU 混合参考路径的验收记录。
+
 2026-11-06 实测：**可以生成文本**。使用本仓库 `cann/` 的 C++ `Model` 和
 `model_seq` 二进制，读取原始 Qwen3.8-Flash-Next GSQ-RCO IQ3_XXS 两分片。
 运行过程不加载 Torch，也不调用 llama.cpp 或其他推理服务。
@@ -7,6 +10,49 @@
 这仍是移植正确性路径。矩阵投影使用 CANN FP32 在 NPU 执行；归一化、路由、
 卷积、递归状态更新和注意力状态计算使用 CPU FP32。**尚未实现全算子 NPU 化，
 也尚未接入 `strata launch` 的后端自动选择。**
+
+## 追加验收：自然语言输入与 FP16 转换修复
+
+2026-11-06 在独立目录 `/data/strata-native-codex-20261106` 从当前源码重新构建，
+发现 CANN 的 `f32_to_f16` 使用尾数截断、将次正规数清零，并将 NaN 转为 Inf。
+这与 Qwen3.8 KV/索引状态需要的 FP16 舍入语义不符。现复用公共
+`strata/kernels/f16_bits.hpp`，采用 round-to-nearest-even；NaN 缩窄保留符号并
+规范化为 quiet NaN。
+
+新增 `f16_conversion_parity` 在远端先验证旧代码失败，再验证修复后通过：
+
+```text
+旧实现：f32 0x3f803000 -> f16 0x3c01, expected 0x3c02
+新实现：Known RNE vectors and all 65,536 FP16 encodings: PASS
+新实现：1,000,000 sampled F32 bit patterns vs compiler _Float16: PASS
+```
+
+修复后 CANN 基础算子检查、12 种量化格式解码对照均通过，IQ3_XXS 解码与 ggml
+逐位一致。自然语言输入 `The capital of France is` 对应 5 个 token，固定生成 8 个：
+
+```text
+11751, 13, 561, 6511, 314, 9564, 369, 19241
+ Paris. The capital of Germany is Berlin
+```
+
+本轮关闭 trace、使用逻辑 `npu:1` 与 12 GiB 权重缓存：prefill 为 90.046730 s，
+decode 为 133.678433 s，7 次后续 decode 的吞吐为 **0.052364 token/s**。
+进程退出码为 0，累计 26,552 次 NPU matmul；`npu-smi` 运行中观察到
+`model_seq` 占用 14,688 MiB，实际缓存命中数为 0。该快照的 AICore 利用率为 0%，
+不能据单次采样推断整个推理过程的设备执行比例；本轮未采集 CANN profiler。
+
+另行构建 `qwen38_oracle.cpp`，使用独立 llama 图和诊断浮点矩阵乘作为 CPU 对照。
+该对照将权重解码为浮点、采用 FP32 激活与 FP64 累加后转回 FP32，并禁用额外
+CPU buffers，**不是默认 llama.cpp 量化执行路径**。两边 8/8 贪心 token 相同，
+首步 top-5 ID 同序。所选 token 的 8 个原始 logit 最大绝对误差从修复前
+0.031236734 降至 0.030559734；仍有数值差异，不能把差异全归因于 FP16 转换。
+本轮未保存原生完整 logits/逐层 trace，不宣称全词表或逐层数值一致。
+
+本轮二进制 SHA-256：
+`6c0771a67d2ab47558072cfc28b0d072fafc31fc9482a8acda9bbe03bdd16d08`。
+日志、前后对照、构建脚本及源码副本保存在工作区
+`results/20261106-strata-native/`；以下原有验收记录属于修复前的独立测试，
+其服务健康状态及运行时间不代表本轮结果。
 
 ## 从哪里修起
 
