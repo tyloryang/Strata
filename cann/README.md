@@ -18,6 +18,22 @@ The separate Torch/CANN HTTP backend remains documented in
 [`QWEN38_IQ3_XXS_ASCEND_CN.md`](QWEN38_IQ3_XXS_ASCEND_CN.md).
 The older C++ sections below describe Qwen3.6 and its historical measurements.
 
+## Dual 910B2C deployment and benchmark
+
+The 2026-11-06 run used the native `model_seq-grouped` engine with
+`STRATA_CANN_NPU_ONLY=1` on two Ascend 910B2C devices under CANN 9.0. For a
+fixed 5-token prompt and 32 generated tokens, resident decode median improved
+from 2.174328 token/s to 10.949095 token/s (5.04×). This comparison changed
+the engine binary and enabled deferred submission and grouped experts.
+
+The separate authenticated API concurrency run measured aggregate batch
+throughput of 8.918, 9.279 and 9.317 token/s at concurrency 1, 2 and 4,
+respectively; all 21 formal requests succeeded. These API batch rates include
+queueing and request overhead and are not directly comparable to resident
+decode. Neither measurement reached 100 token/s. The full Chinese deployment
+and load-test manual, source artifacts, exact commands and measurement limits
+are in [`the dual-910B2C report`](../bench/results/2026-11-06-community-2x-ascend-910b2c-qwen38-iq3-xxs/README.md).
+
 This directory is to the CANN backend what `sycl/` is to the Intel backend: a separate project
 that grows next to the CUDA engine until it can take the engine's sources.
 

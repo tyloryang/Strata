@@ -162,6 +162,7 @@ Follow the prompts to download and start a model. [Terminal guide](docs/TERMINAL
 | **Apple Silicon · M1 or newer** | [Mac setup](docs/MAC.md) |
 | **AMD Ryzen AI Max · Strix Halo** | [Strix Halo setup](docs/STRIX_HALO.md) |
 | **NVIDIA DGX Spark · Linux** | [DGX Spark setup](docs/DGX_SPARK_LINUX.md) |
+| **Ascend 910B2C · experimental CANN developer port** | [Deployment and benchmark report](bench/results/2026-11-06-community-2x-ascend-910b2c-qwen38-iq3-xxs/README.md) · not included in desktop or Terminal installers |
 
 <a id="using-it"></a>
 
