@@ -37,7 +37,7 @@
   ],
   "description": "在自己电脑上本地运行大模型的开源引擎、服务端、终端工具与桌面应用（C++/CUDA/HIP/SYCL/Metal 推理引擎 + Python OpenAI/Anthropic 兼容服务 + Tauri 桌面端）。",
   "analyzedAt": "2026-11-06T04:30:39+00:00",
-  "gitCommitHash": "a3869dd13cf4a507162d8103205912c92c070f47"
+  "gitCommitHash": "00ad02a730f8887fb87993a03ca677fdfa1d829e"
  },
  "nodes": [
   {

@@ -1,6 +1,6 @@
 # Strata 代码地图（中文）
 
-> 这是 [Niko1221/Strata](https://github.com/Niko1221/Strata) 的一份代码解读：用 [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything) 生成的知识图谱，加上按阅读顺序整理的说明。对应分支 `main`，提交 `a3869dd1`。
+> 这是 [Niko1221/Strata](https://github.com/Niko1221/Strata) 的一份代码解读：用 [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything) 生成的知识图谱，加上按阅读顺序整理的说明。对应分支 `main`，提交 `00ad02a7`。
 
 这个分支是 fork 的 `main`：在一个较早的上游版本之上，加了昇腾 910B2C 的 CANN 移植（`cann/` 目录）。上游最新版本的图谱在 `code-map` 分支。
 
