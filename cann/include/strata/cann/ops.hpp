@@ -11,7 +11,7 @@
 
 namespace strata::cann {
 
-enum class DType { F16, F32 };
+enum class DType { F16, BF16, F32 };
 
 // A contiguous device tensor. ne2 carries a batch dimension for the batched ops; the 2D ops
 // ignore it and the 3D ops require it.
@@ -23,7 +23,7 @@ struct Tensor {
     int64_t ne2 = 1; // batch
 
     int64_t elements() const { return ne0 * ne1 * ne2; }
-    size_t bytes() const { return (size_t) elements() * (dtype == DType::F16 ? 2 : 4); }
+    size_t bytes() const { return (size_t) elements() * (dtype == DType::F32 ? 4 : 2); }
 };
 
 // out[M,N] = a[M,K] * b[K,N]
@@ -36,6 +36,13 @@ void bmm(Stream & stream, const Tensor & a, const Tensor & c, Tensor & out);
 void mul_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out);
 void add_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out);
 void sub_bcast(Stream & stream, const Tensor & a, const Tensor & b, Tensor & out);
+
+// values[k] = the k largest entries of the row x, indices[k] their positions, highest first.
+// `indices` must be a device buffer of k int64 values.
+void topk(Stream & stream, const Tensor & x, int64_t k, int64_t dim, Tensor & values, Tensor & indices);
+
+// out = log(sum(exp(x))) reduced along `dim`.
+void logsumexp(Stream & stream, const Tensor & x, int64_t dim, Tensor & out);
 
 // out = cast(x) to dst_type
 void cast(Stream & stream, const Tensor & x, DType dst_type, Tensor & out);

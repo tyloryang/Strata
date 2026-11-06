@@ -1,0 +1,101 @@
+{
+  "started_at": "2026-11-06T17:41:12+08:00",
+  "endpoint": "http://127.0.0.1:18790",
+  "model": "qwen3.8-flash-next-iq3-xxs-strata-cann",
+  "prompt_tokens_reported": 5,
+  "max_tokens_per_request": 24,
+  "repeats_per_worker": 3,
+  "concurrency_levels": [
+    {
+      "concurrency": 1,
+      "requests": 3,
+      "successes": 3,
+      "failures": 0,
+      "duration_s": 8.073,
+      "requests_per_s": 0.372,
+      "completion_tokens": 72,
+      "completion_tokens_per_s": 8.918,
+      "client_latency_p50_s": 2.671,
+      "client_latency_p95_s": 2.674,
+      "client_latency_max_s": 2.674,
+      "mean_service_s": 2.56,
+      "mean_end_to_end_tok_s": 9.375
+    },
+    {
+      "concurrency": 2,
+      "requests": 6,
+      "successes": 6,
+      "failures": 0,
+      "duration_s": 15.519,
+      "requests_per_s": 0.387,
+      "completion_tokens": 144,
+      "completion_tokens_per_s": 9.279,
+      "client_latency_p50_s": 5.125,
+      "client_latency_p95_s": 5.221,
+      "client_latency_max_s": 5.246,
+      "mean_service_s": 4.632,
+      "mean_end_to_end_tok_s": 5.517
+    },
+    {
+      "concurrency": 4,
+      "requests": 12,
+      "successes": 12,
+      "failures": 0,
+      "duration_s": 30.911,
+      "requests_per_s": 0.388,
+      "completion_tokens": 288,
+      "completion_tokens_per_s": 9.317,
+      "client_latency_p50_s": 10.259,
+      "client_latency_p95_s": 10.325,
+      "client_latency_max_s": 10.378,
+      "mean_service_s": 8.91,
+      "mean_end_to_end_tok_s": 3.195
+    }
+  ],
+  "warmup": {
+    "wall_s": 1.214282299974002,
+    "service_s": 1.1,
+    "prompt_tokens": 5,
+    "completion_tokens": 8,
+    "end_to_end_tok_s": 7.2727272727272725,
+    "status": 200
+  },
+  "hardware_sampling": {
+    "samples": 36,
+    "peak_active_requests": 4,
+    "peak_aicore_percent_by_device": {
+      "0": 61.0,
+      "1": 65.0
+    },
+    "last_devices": [
+      {
+        "device": 0,
+        "name": "910B2C",
+        "health": "OK",
+        "power_w": 109.4,
+        "temperature_c": 30.0,
+        "aicore_percent": 59.0,
+        "hbm_used_mb": 59289,
+        "hbm_total_mb": 65536,
+        "strata_process_mb": 55688,
+        "hbm_percent": 90.47
+      },
+      {
+        "device": 1,
+        "name": "910B2C",
+        "health": "OK",
+        "power_w": 121.3,
+        "temperature_c": 35.0,
+        "aicore_percent": 65.0,
+        "hbm_used_mb": 38882,
+        "hbm_total_mb": 65536,
+        "strata_process_mb": 35430,
+        "hbm_percent": 59.33
+      }
+    ]
+  },
+  "gateway_request_totals_before": 1,
+  "gateway_request_totals_after": 23,
+  "api_key_recorded": false,
+  "metric_note": "Aggregate output tok/s uses generated tokens divided by wall time for each concurrency batch; request end-to-end rates include service overhead and queueing."
+}

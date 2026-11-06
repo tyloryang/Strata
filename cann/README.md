@@ -1,5 +1,39 @@
 # `cann/` - the Ascend port of the engine
 
+Qwen3.8-Flash-Next IQ3_XXS has an opt-in device-resident native C++ path through
+`model_seq`: [`QWEN38_NPU_ONLY_CN.md`](QWEN38_NPU_ONLY_CN.md) gives the build and
+run commands. AscendC decodes packed weights on the NPU; activations, recurrent
+state, attention and routing use CANN device tensors. The host handles file I/O,
+tokenization and dispatch. Tiled DMA and vector decoding now reach a measured
+median of 1.93 token/s on one 910B2C with a 40 GiB decoded-weight cache; see
+[`QWEN38_NPU_OPT_CN.md`](QWEN38_NPU_OPT_CN.md) for the controlled comparisons,
+correctness checks and profiling evidence.
+
+The default CPU/NPU reference path and its earlier measurements remain in
+[`QWEN38_NATIVE_CANN_CN.md`](QWEN38_NATIVE_CANN_CN.md). Set both the build option
+and runtime switch for the NPU-only path; it rejects unsupported execution modes.
+
+The separate Torch/CANN HTTP backend remains documented in
+[`QWEN38_IQ3_XXS_ASCEND.md`](QWEN38_IQ3_XXS_ASCEND.md) and
+[`QWEN38_IQ3_XXS_ASCEND_CN.md`](QWEN38_IQ3_XXS_ASCEND_CN.md).
+The older C++ sections below describe Qwen3.6 and its historical measurements.
+
+## Dual 910B2C deployment and benchmark
+
+The 2026-11-06 run used the native `model_seq-grouped` engine with
+`STRATA_CANN_NPU_ONLY=1` on two Ascend 910B2C devices under CANN 9.0. For a
+fixed 5-token prompt and 32 generated tokens, resident decode median improved
+from 2.174328 token/s to 10.949095 token/s (5.04×). This comparison changed
+the engine binary and enabled deferred submission and grouped experts.
+
+The separate authenticated API concurrency run measured aggregate batch
+throughput of 8.918, 9.279 and 9.317 token/s at concurrency 1, 2 and 4,
+respectively; all 21 formal requests succeeded. These API batch rates include
+queueing and request overhead and are not directly comparable to resident
+decode. Neither measurement reached 100 token/s. The full Chinese deployment
+and load-test manual, source artifacts, exact commands and measurement limits
+are in [`the dual-910B2C report`](../bench/results/2026-11-06-community-2x-ascend-910b2c-qwen38-iq3-xxs/README.md).
+
 This directory is to the CANN backend what `sycl/` is to the Intel backend: a separate project
 that grows next to the CUDA engine until it can take the engine's sources.
 
@@ -277,6 +311,22 @@ budget. The workspace cache removed an `aclrtMalloc`/`aclrtFree` pair per op. Dr
 per-op `stream.synchronize()` as well made the numbers wrong — host uploads go through
 `aclrtMemcpy`, which is not ordered against queued kernels — so the sync stayed.
 
+## Where the code lives
+
+| path | what |
+|---|---|
+| `include/strata/cann/device.hpp`, `src/device.cpp` | device, stream, HBM buffers, error type |
+| `include/strata/cann/ops.hpp`, `src/ops.cpp` | the aclnn ops and their CPU oracles |
+| `src/quants.cpp`, `src/iq_quants.cpp` | Q4_K/Q5_K/Q6_K/Q8_0 decoders, bit-exact against ggml |
+| `src/gguf.cpp`, `src/tensor_load.cpp` | GGUF reader, tensor to fp32 |
+| `include/strata/cann/gdn.hpp`, `src/gdn.cpp` | the delta net, per head and batched |
+| `include/strata/cann/engine.hpp`, `src/engine.cpp` | the model: weights, per-layer state, one token step, top-k |
+| `tests/model_seq.cpp` | 178 lines: the parity probe, the generator, the serving loop |
+| `tests/*.cpp` | one parity test per piece, all driven by `verify_all.sh` |
+
+The engine was extracted from the test file late: it had grown three jobs in one 1024-line file.
+`model_seq.cpp` is now only the ways of driving it.
+
 ## One command
 
 ```
@@ -349,7 +399,7 @@ prompts never seen:     4.72 s   ' the heavens and the earth.'
 
 Those four texts are the llama.cpp completions too; the greedy path agrees token for token.
 
-Serving exposed a real waste: the output projection is 151936 x 2048, and the first version
+Serving exposed a real waste: the output projection is 248320 x 2048, and the first version
 re-dequantized it on the host for every generated token. Keeping it resident turned the first
 request from 67 s into 17 s and warm requests into 1.8 s.
 
@@ -378,6 +428,43 @@ host that does use systemd. `LD_LIBRARY_PATH` must include the driver directorie
 
 With 12 GB the whole verify suite still passes while the endpoint serves; with 24 GB the suite
 fails with `aclrtMalloc failed`. The suite sets `STRATA_BUDGET_GB=8` for its own runs.
+
+## Sampling
+
+The sampler runs on the device. `topk` (aclnnTopk) and `logsumexp` (aclnnLogSumExp) take the fp32
+logits and return the k largest entries plus the log-partition, so a step copies back 32 floats,
+32 indices and one scalar instead of the whole vocabulary. `tests/topk_parity.cpp` checks both
+against a host implementation over the model's real width:
+
+```
+device topk: vocab=248320 k=8
+rank             device         host  ids
+0             18.175989    18.175989  76617
+...
+log-partition  device 19.818172  host 19.818173  diff 4.16e-07  PASS
+```
+
+The vocabulary is 248320, not the 151936 of the older checkpoints; earlier notes in this file that
+say 151936 are wrong.
+
+## What the ecosystem does instead
+
+`Ascend-SACT/Qwen3.8-Flash-Next` is the official deployment package for a much larger model
+(360 GB, 16 cards). It cannot run here — this box has one 910B2C, CANN 9.0 rather than 9.1, and no
+container runtime — but reading its patch answered the question this port had left open.
+
+`vllm_ascend/ops/gdn.py` calls `torch_npu.npu_recurrent_gated_delta_rule` for decode and
+`npu_chunk_gated_delta_rule` for prefill. That maps to `aclnnRecurrentGatedDeltaRule`, which **CANN
+9.0 already ships** (`/usr/local/Ascend/cann-9.0.0/include/aclnnop/aclnn_recurrent_gated_delta_rule.h`).
+So the earlier conclusion in this file — that beating the CPU on the delta net would need a
+hand-written kernel — was wrong: the fused operator exists, `ggml-cann` merely never calls it (it
+includes the header and no more).
+
+Using it would trade precision for calls: the operator is bfloat16 only, while this port keeps the
+recurrent state in fp32 and matches the float reference exactly. Its other arguments
+(`ssmStateIndices`, `gk`, `numAcceptedTokens`) assume a paged state and speculative decoding. Since
+the delta net is about 0.15 s of the 0.4 s a token costs here, and the rest is MoE weight movement,
+the trade is not obviously worth taking. `tests/gdn_parity.cpp` would be the place to measure it.
 
 ## What is not here yet
 

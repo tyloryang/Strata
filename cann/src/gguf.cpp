@@ -103,7 +103,37 @@ Gguf::Gguf(const std::string & path) : path_(path) {
             case Kind::I32: ints_[key] = r.get<int32_t>(); break;
             case Kind::U64: ints_[key] = (int64_t) r.get<uint64_t>(); break;
             case Kind::I64: ints_[key] = r.get<int64_t>(); break;
-            case Kind::F32: { const float f = r.get<float>(); ints_[key] = (int64_t) f; break; }
+            // keep the value: truncating 1e-6 to an integer made every eps and every float
+            // hyperparameter read back as 0, which is wrong without ever failing
+            case Kind::F32: {
+                const float f = r.get<float>();
+                floats_[key] = (double) f;
+                ints_[key] = (int64_t) f;
+                break;
+            }
+            case Kind::F64: {
+                const double f = r.get<double>();
+                floats_[key] = f;
+                ints_[key] = (int64_t) f;
+                break;
+            }
+            case Kind::Bool: ints_[key] = r.get<uint8_t>() ? 1 : 0; break;
+            case Kind::Array: {
+                const auto elem = (Kind) r.get<uint32_t>();
+                const uint64_t count = r.get<uint64_t>();
+                // Model geometry/hash tables only; do not materialize tokenizer arrays.
+                const bool keep = key.rfind("qwen4exp.", 0) == 0 && count <= 100000 &&
+                    (elem == Kind::U32 || elem == Kind::I32 || elem == Kind::U64 || elem == Kind::I64);
+                if (keep) {
+                    auto & values = arrays_[key];
+                    values.reserve(count);
+                    for (uint64_t j = 0; j < count; ++j)
+                        values.push_back(elem == Kind::U32 || elem == Kind::I32 ? r.get<uint32_t>() : r.get<uint64_t>());
+                } else {
+                    for (uint64_t j = 0; j < count; ++j) r.skip_value(elem);
+                }
+                break;
+            }
             default: r.skip_value(kind); break;
         }
     }
@@ -140,9 +170,20 @@ int64_t Gguf::metadata_int(const std::string & key) const {
     return it == ints_.end() ? 0 : it->second;
 }
 
+double Gguf::metadata_flt(const std::string & key) const {
+    const auto it = floats_.find(key);
+    return it == floats_.end() ? 0.0 : it->second;
+}
+
 std::string Gguf::metadata_str(const std::string & key) const {
     const auto it = strings_.find(key);
     return it == strings_.end() ? std::string() : it->second;
+}
+
+const std::vector<uint64_t> & Gguf::metadata_uints(const std::string & key) const {
+    const auto it = arrays_.find(key);
+    if (it == arrays_.end()) throw std::runtime_error("gguf: missing integer array " + key);
+    return it->second;
 }
 
 const GgufTensor * Gguf::find(const std::string & name) const {
