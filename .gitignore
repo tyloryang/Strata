@@ -95,3 +95,8 @@ node_modules/
 /build-spark/
 /build-vision-spark/
 /.venv-build/
+
+# Understand-Anything scratch
+.ua/intermediate/
+.ua/diff-overlay.json
+.ua/.trash-*

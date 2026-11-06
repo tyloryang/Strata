@@ -1,0 +1,214 @@
+<title>Strata 代码地图</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column, request path as a vertical bus, layers as to-scale bars */
+:root {
+  --bg: #eef2f0; --panel: #f8faf9; --ink: #17211e; --muted: #56635e; --rule: #cdd6d2;
+  --accent: #0d6b5c; --accent-soft: #d3e8e2; --bar: #0d6b5c;
+  --display: "Archivo", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121816; --panel: #19211e; --ink: #e3ebe7; --muted: #95a49e; --rule: #2c3833;
+  --accent: #5cc4ad; --accent-soft: #1f3a33; --bar: #4fb39d; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121816; --panel: #19211e; --ink: #e3ebe7; --muted: #95a49e; --rule: #2c3833;
+  --accent: #5cc4ad; --accent-soft: #1f3a33; --bar: #4fb39d; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 720px; margin: 0 auto; padding-block: 32px 56px; display: grid; gap: 44px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 7vw, 40px); font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; }
+h2 { font-size: 20px; font-weight: 700; }
+h3 { font-size: 16px; font-weight: 700; }
+p { margin: 0; }
+code { font-family: var(--mono); font-size: 12.5px; color: var(--accent); overflow-wrap: anywhere; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+header { display: grid; gap: 12px; }
+.lede { color: var(--muted); max-width: 62ch; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-top: 8px; }
+.stats div { padding: 12px 0; display: grid; gap: 2px; }
+.stats div + div { padding-left: 12px; border-left: 1px solid var(--rule); }
+.stats b { font-family: var(--display); font-size: 22px; font-variant-numeric: tabular-nums; }
+.stats span { font-size: 12px; color: var(--muted); }
+@media (max-width: 480px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats div:nth-child(3) { padding-left: 0; border-left: 0; border-top: 1px solid var(--rule); }
+  .stats div:nth-child(4) { border-top: 1px solid var(--rule); } }
+section { display: grid; gap: 16px; }
+.sec-head { display: grid; gap: 4px; }
+.sec-head p { color: var(--muted); font-size: 14px; }
+ol, ul { margin: 0; padding: 0; list-style: none; }
+.flow { display: grid; gap: 0; position: relative; }
+.hop { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 14px; position: relative; padding-bottom: 20px; }
+.hop::before { content: ""; position: absolute; left: 25px; top: 30px; bottom: 0; width: 2px; background: var(--rule); }
+.hop:last-child::before { display: none; }
+.tag { width: 52px; height: 30px; display: grid; place-items: center; border-radius: 4px; background: var(--accent-soft);
+  color: var(--accent); font-weight: 700; font-size: 13px; position: relative; z-index: 1; }
+.hopbody { display: grid; gap: 4px; min-width: 0; padding-top: 3px; }
+.hopbody p { color: var(--muted); font-size: 14px; }
+.layers { display: grid; gap: 18px; }
+.layer { display: grid; gap: 6px; }
+.lrow { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.lname { font-weight: 600; }
+.lnum { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--bar); }
+.layer p { font-size: 13.5px; color: var(--muted); }
+.steps { display: grid; border-top: 1px solid var(--rule); }
+.step { border-bottom: 1px solid var(--rule); }
+.step summary { display: flex; gap: 12px; align-items: baseline; padding: 14px 0; cursor: pointer; list-style: none; }
+.step summary::-webkit-details-marker { display: none; }
+.step summary::after { content: "+"; margin-left: auto; font-family: var(--mono); color: var(--muted); }
+.step[open] summary::after { content: "−"; }
+.step summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sn { font-family: var(--mono); font-size: 13px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.st { font-weight: 600; }
+.step > p { font-size: 14px; color: var(--muted); padding: 0 0 10px 34px; }
+.paths { display: grid; gap: 2px; padding: 0 0 16px 34px; }
+.hubs { display: grid; gap: 14px; }
+.hubs li { display: grid; gap: 4px; }
+.hrow { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; align-items: baseline; }
+.hc { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hubs p { font-size: 13.5px; color: var(--muted); }
+.howto { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 18px; display: grid; gap: 12px; }
+.howto ol { list-style: decimal; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
+.cmd { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.cmd pre { margin: 0; overflow-x: auto; background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 10px 12px; }
+.cmd pre code { white-space: pre; overflow-wrap: normal; }
+button { font: inherit; font-size: 13px; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.notes { font-size: 13px; color: var(--muted); display: grid; gap: 6px; border-top: 1px solid var(--rule); padding-top: 16px; }
+</style>
+<main>
+  <header>
+    <span class="eyebrow">Understand-Anything · 知识图谱 · commit a3869dd1</span>
+    <h1>Strata 代码地图</h1>
+    <p class="lede">Strata 是在自己电脑上运行大模型的开源项目：C++/CUDA/HIP/SYCL/Metal 推理引擎、Python 兼容 API 服务端、strata 终端命令和 Tauri 桌面应用。下面是从知识图谱里整理出的结构、请求路径和阅读顺序。</p>
+    <div class="stats">
+      <div><b>2,897</b><span>纳入分析的文件</span></div>
+      <div><b>4,403</b><span>节点（含类与函数）</span></div>
+      <div><b>10,531</b><span>关系边</span></div>
+      <div><b>6,637</b><span>导入依赖</span></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><h2>一次请求怎么走到 GPU</h2><p>从用户操作到计算内核，每一站列出最关键的文件。</p></div>
+    <ol class="flow"><li class="hop"><span class="tag">入口</span><div class="hopbody"><h3>桌面应用 或 strata 命令</h3><code>apps/desktop · apps/host · strata.py · strata_cli/</code><p>用户在桌面应用里点选，或在终端运行 strata launch。两者最后都交给同一个控制层。</p></div></li>
+<li class="hop"><span class="tag">控制</span><div class="hopbody"><h3>strata_control</h3><code>engine_component.py · runtime.py · updater.py</code><p>校验本地引擎包的哈希与签名，按保存的 profile 启动并监管服务进程，处理签名更新。</p></div></li>
+<li class="hop"><span class="tag">服务</span><div class="hopbody"><h3>Python 推理服务端</h3><code>serve/server.py · frontend.py</code><p>对外提供 OpenAI / Anthropic 兼容 API 和网页；渲染聊天模板，只把 token id 经 stdin/stdout 交给引擎进程。</p></div></li>
+<li class="hop"><span class="tag">引擎</span><div class="hopbody"><h3>C++ 引擎主程序</h3><code>src/program/generate.cpp · src/dsv41/ds4_main.cpp</code><p>把 embedding、逐层前向、MoE 专家调度、投机解码和采样串成生成循环。放不进显存的专家从 SSD 读取。</p></div></li>
+<li class="hop"><span class="tag">内核</span><div class="hopbody"><h3>计算内核</h3><code>src/kernels · src/prefill · include/strata/kernels</code><p>量化 GEMV/GEMM、MoE、QSA 稀疏注意力、KV cache 量化。CUDA 与 HIP 共用一套源码。</p></div></li>
+<li class="hop"><span class="tag">后端</span><div class="hopbody"><h3>多卡与其他硬件</h3><code>src/split · sycl/ · metal/</code><p>split 把每层切到 2–8 张卡；SYCL 版本面向 Intel Arc，Metal 版本面向 Apple Silicon。</p></div></li></ol>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>10 个架构分层</h2><p>每个文件归入一层，条形长度按文件数比例绘制。</p></div>
+    <ul class="layers"><li class="layer"><div class="lrow"><span class="lname">测试与一致性校验</span><span class="lnum">1,021</span></div>
+<div class="bar" aria-hidden="true"><span style="width:100.0%"></span></div>
+<p>各后端、引擎、服务端、终端和桌面 UI 的测试，包括 GPU 内核与参考实现的 parity 对比测试。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">桌面应用</span><span class="lnum">459</span></div>
+<div class="bar" aria-hidden="true"><span style="width:45.0%"></span></div>
+<p>apps/desktop 的 Tauri 外壳（Rust）与 apps/host 的 Node 主机服务和 React 网页 UI，面向不用终端的普通用户。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">推理引擎核心</span><span class="lnum">325</span></div>
+<div class="bar" aria-hidden="true"><span style="width:31.8%"></span></div>
+<p>src/ 下的模型执行：GGUF 加载、层与专家调度、prefill/decode、投机解码（MTP、draft）、各模型族实现（DeepSeek V4.1、Qwen3.5/3.6、split 引擎），以及公共头文件与 CMake 构建。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">多后端移植（SYCL / Metal）</span><span class="lnum">302</span></div>
+<div class="bar" aria-hidden="true"><span style="width:29.6%"></span></div>
+<p>sycl/ 把 CUDA 引擎移植到 Intel GPU（dpct + SYCL），metal/ 是 Apple Silicon 上的 Metal 引擎与转换工具。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">开发工具与基准</span><span class="lnum">230</span></div>
+<div class="bar" aria-hidden="true"><span style="width:22.5%"></span></div>
+<p>tools/ 的模型转换、分词器、参考实现、调优与实验脚本，bench/ 的基准测试，以及其余辅助脚本。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">计算内核</span><span class="lnum">164</span></div>
+<div class="bar" aria-hidden="true"><span style="width:16.1%"></span></div>
+<p>src/kernels 与 include/strata/kernels：CUDA/HIP 与 CPU 的量化 GEMV/GEMM、MoE、注意力、KV cache 量化等底层算子。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">终端与控制层</span><span class="lnum">124</span></div>
+<div class="bar" aria-hidden="true"><span style="width:12.1%"></span></div>
+<p>strata 命令（strata.py、strata_cli/）与控制层 strata_control/：选模型、下载引擎、启动服务、监控、更新；以及源码安装入口 setup.py / setup.sh / *.bat。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">文档</span><span class="lnum">121</span></div>
+<div class="bar" aria-hidden="true"><span style="width:11.9%"></span></div>
+<p>README、AGENTS.md、docs/ 下的模型、安装、终端、硬件说明，以及各子目录的说明文档。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">打包、部署与 CI</span><span class="lnum">57</span></div>
+<div class="bar" aria-hidden="true"><span style="width:5.6%"></span></div>
+<p>packaging/ 安装包与更新源、docker/ 镜像与 compose、.github 工作流、Nix flake 和第三方工具集成。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">昇腾 CANN 移植</span><span class="lnum">49</span></div>
+<div class="bar" aria-hidden="true"><span style="width:4.8%"></span></div>
+<p>cann/：把引擎移植到昇腾 910B2C（CANN 9.0）的独立工程，含设备层、aclnn 算子、量化解码、GGUF、GDN、注意力与 MoE，逐层对照测试和 18790 端口的 OpenAI 兼容服务。本 fork 新增。</p></li>
+<li class="layer"><div class="lrow"><span class="lname">推理服务端</span><span class="lnum">45</span></div>
+<div class="bar" aria-hidden="true"><span style="width:4.4%"></span></div>
+<p>serve/ 的 Python 服务：OpenAI / Anthropic 兼容 API、MCP、多副本与并行调度、图像与视觉、网页聊天界面；以及 Intel 版服务入口。</p></li></ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>13 步阅读导览</h2><p>按依赖顺序排列，和仪表盘里的「项目导览」一致。</p></div>
+    <div class="steps"><details class="step" open><summary><span class="sn">01</span><span class="st">项目总览：三大部分</span></summary>
+<p>Strata 让大模型在自己电脑上本地运行。AGENTS.md 把它分成三部分：桌面应用（apps/）、终端工具 strata 命令（strata.py、strata_cli、strata_control），以及引擎与服务端（src/include/metal/sycl 的 C++/CUDA/HIP/SYCL/Metal 引擎 + serve/ 的 Python 服务）。先读 README 和 AGENTS.md 建立整体印象，后面每一步都沿着一次请求从用户到 GPU 的路径往下走。</p><ul class="paths"><li><code>README.md</code></li><li><code>AGENTS.md</code></li><li><code>docs/DETAILS.md</code></li></ul></details>
+<details class="step"><summary><span class="sn">02</span><span class="st">终端入口：strata 命令</span></summary>
+<p>strata.py 是极简入口：先把控制权交给 strata update 装好的新版 Control，再做依赖预检，最后转交 strata_cli/cli.py。cli.py 用 argparse 声明 serve、launch、models、runtime、tune、bench 等子命令，并把实际工作分派给 strata_control。</p><ul class="paths"><li><code>strata.py</code></li><li><code>strata_cli/cli.py</code></li><li><code>strata_cli/__init__.py</code></li></ul></details>
+<details class="step"><summary><span class="sn">03</span><span class="st">strata launch：从零到可用的服务</span></summary>
+<p>launch 是给用户和 agent 的主路径。catalog/settings 决定模型族与量化包，runner.py 用统一的事件流依次完成：从签名 feed 获取引擎、调 setup.py 的安装模式下载模型、写 profile、自动调优、经 runtime 后台启动并开放访问。TUI 和 --no-tui 共用同一事件流。</p><ul class="paths"><li><code>strata_cli/launch/runner.py</code></li><li><code>strata_cli/launch/catalog.py</code></li><li><code>strata_cli/launch/settings.py</code></li><li><code>setup.py</code></li></ul></details>
+<details class="step"><summary><span class="sn">04</span><span class="st">控制层：引擎组件、进程监管与更新</span></summary>
+<p>strata_control 是终端与桌面应用共享的控制逻辑。engine_component.py 只在本地组件目录里查找并校验引擎包（哈希+签名，不下载）；runtime.py 是进程 supervisor，POSIX 用 AF_UNIX 套接字与 flock 租约，Windows 用回环 TCP 与 job object；updater.py 负责签名更新。</p><ul class="paths"><li><code>strata_control/engine_component.py</code></li><li><code>strata_control/runtime.py</code></li><li><code>strata_control/updater.py</code></li><li><code>strata_control/profiles.py</code></li></ul></details>
+<details class="step"><summary><span class="sn">05</span><span class="st">推理服务端：OpenAI / Anthropic 兼容 API</span></summary>
+<p>serve/server.py（约 1 万行）用标准库 ThreadingHTTPServer 提供 Chat Completions、Anthropic Messages、Responses、图像、健康检查与网页。StrataEngine 通过 stdin/stdout 驱动常驻的 C++ 引擎进程，只传 token id、收文本增量；Service 串行调度请求并管理会话与 KV cache。frontend.py 负责聊天模板渲染和流式输出中 &lt;think&gt;/&lt;tool_call&gt; 的增量解析。</p><ul class="paths"><li><code>serve/server.py</code></li><li><code>serve/frontend.py</code></li><li><code>serve/responses.py</code></li><li><code>serve/mcp.py</code></li><li><code>serve/replicas.py</code></li></ul></details>
+<details class="step"><summary><span class="sn">06</span><span class="st">引擎主程序：strata generate</span></summary>
+<p>src/program/generate.cpp（2 万多行）是 C++ 侧最核心的程序：把 embedding、各层捕获的 CUDA/HIP graph、CPU 专家池、lm_head 与采样串成端到端生成，并承载服务会话、投机解码、对话缓存与多卡调度。DeepSeek V4.1 有独立入口 ds4_main.cpp，用同样的 stdin/stdout 协议（INFO/READY/GEN/T/DONE）对接 server.py。</p><ul class="paths"><li><code>src/program/generate.cpp</code></li><li><code>src/dsv41/ds4_main.cpp</code></li><li><code>src/qwen35/q36_engine.cu</code></li><li><code>CMakeLists.txt</code></li></ul></details>
+<details class="step"><summary><span class="sn">07</span><span class="st">一层的前向与 MoE 专家调度</span></summary>
+<p>layer.cpp 按固定顺序把 RMS norm、量化 GEMV、门控 delta 递推（GDN）、注意力和 MoE 合并组成一层。expert_source.cpp 是专家池与 session 循环的适配层，把 top-k 专家 id 和路由权重交给 CPU 池或 GPU 窗口；它还负责内存规划：cgroup 可用内存、pin、NUMA 放置，以及 O_DIRECT 与 page cache 两种读法的测速——这正是放不进显存的部分能从 SSD 读取的原因。</p><ul class="paths"><li><code>src/core/layer.cpp</code></li><li><code>src/core/expert_source.cpp</code></li><li><code>src/platform/direct_file.cpp</code></li><li><code>src/platform/memory.cpp</code></li></ul></details>
+<details class="step"><summary><span class="sn">08</span><span class="st">投机解码：MTP 草稿 + 窗口验证</span></summary>
+<p>mtp.cpp 的 MtpDrafter 用多 token 预测层产出草稿 token；verify.cpp 把一个窗口的多个 token 一次跑过整个模型来校验并提交。src/spec 提供 draft_policy（窗口大小策略）和 suffix_drafter（n-gram 草稿），两者共同决定每步能多出几个 token。</p><ul class="paths"><li><code>src/core/mtp.cpp</code></li><li><code>src/core/verify.cpp</code></li><li><code>src/spec/draft_policy.cpp</code></li><li><code>src/spec/suffix_drafter.cpp</code></li></ul></details>
+<details class="step"><summary><span class="sn">09</span><span class="st">计算内核：量化 GEMV、稀疏注意力、prefill</span></summary>
+<p>src/kernels 和 include/strata/kernels 是底层算子：MMVQ 与 i-quant 反量化 GEMV、MoE 专家 GEMV、QSA 稀疏注意力（qsa_select.cu 对块打分并做 top-k）、KV cache 量化等。src/prefill 是 prompt 预填充专用的 WMMA/MMQ GEMM 与分块 GDN。CUDA 与 HIP 共用这一套源码。</p><ul class="paths"><li><code>src/kernels/cuda/qsa_select.cu</code></li><li><code>include/strata/kernels/native_mmvq.hpp</code></li><li><code>include/strata/kernels/iq_kernels.hpp</code></li><li><code>include/strata/kernels/kv_q4.hpp</code></li><li><code>src/prefill/moe_ws.cuh</code></li></ul></details>
+<details class="step"><summary><span class="sn">10</span><span class="st">多卡与多后端：split、SYCL、Metal</span></summary>
+<p>src/split 是每层切分到 2–8 张卡的 sFNX 引擎，卡间用 ring 求和。sycl/ 用 SYCLomatic（dpct）把 CUDA 引擎迁移到 Intel Arc，并有 server_intel.py 包装服务；metal/ 是 Apple Silicon 引擎，metal_compat 提供 CUDA 兼容头，MSL kernel 运行时编译。</p><ul class="paths"><li><code>src/split/src/engine.hpp</code></li><li><code>sycl/src/program/generate.cpp</code></li><li><code>sycl/serve/server_intel.py</code></li><li><code>metal/include/strata/gpu/runtime.hpp</code></li><li><code>metal/kernels/moe_mm.metal</code></li></ul></details>
+<details class="step"><summary><span class="sn">11</span><span class="st">昇腾 910B 移植（本 fork 新增）</span></summary>
+<p>cann/ 是与 CUDA 的 src/ 并行的独立工程，不依赖主引擎代码。device.cpp 封装 ACL 运行时并用分桶内存池避免频繁 aclrtMalloc；ops.cpp 用 aclnn 两阶段调用实现 fp16 算子；quants/gguf/tensor_load 负责量化解码与读模型。tests/model_seq.cpp 把 Qwen3.6-35B-A3B 整模型 40 层跑在 NPU 上，与 llama.cpp 对比 top-5 同序、最大 logprob 差 0.071、贪心续写逐 token 一致；serve_engine.py 在 18790 端口提供 OpenAI 兼容接口。尚未接入 serve/，速度约为 llama.cpp+ggml-cann 的十分之一。</p><ul class="paths"><li><code>cann/README.md</code></li><li><code>cann/src/device.cpp</code></li><li><code>cann/src/ops.cpp</code></li><li><code>cann/tests/model_seq.cpp</code></li><li><code>cann/tests/serve_engine.py</code></li></ul></details>
+<details class="step"><summary><span class="sn">12</span><span class="st">桌面应用：Tauri 外壳 + Node Host + React UI</span></summary>
+<p>main.rs 只做外壳：在空闲端口启动随包的 Node App Host，开同源 webview，退出时经 Control 关停引擎。apps/host/server 是本地 API 与控制平面（native-control.mjs），agent-bridge.mjs 把聊天映射为 DeepSeek Harness 会话；apps/host/src 是 React 界面（App、Chat、ModelRun 等屏幕）。</p><ul class="paths"><li><code>apps/desktop/src-tauri/src/main.rs</code></li><li><code>apps/host/server/native-control.mjs</code></li><li><code>apps/host/server/agent/agent-bridge.mjs</code></li><li><code>apps/host/src/app/App.tsx</code></li><li><code>apps/host/src/screens/Chat.tsx</code></li></ul></details>
+<details class="step"><summary><span class="sn">13</span><span class="st">打包、发布与测试</span></summary>
+<p>packaging/feed_tool.py 在离线机器上用 Ed25519 给引擎包签名并生成更新 feed，用户端由 strata update 验证；package_terminal.py 打终端包，docker/ 提供 NVIDIA/AMD/Intel 镜像。测试分布在 tests/（终端、core、各后端 parity）、apps/host/tests 与 serve/test_*，GPU 内核普遍用与参考实现逐项对比的 parity 测试把关。</p><ul class="paths"><li><code>packaging/feed_tool.py</code></li><li><code>packaging/package_terminal.py</code></li><li><code>Dockerfile</code></li><li><code>docker/entrypoint.sh</code></li><li><code>tests/terminal/launch_support.py</code></li></ul></details></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>被依赖最多的文件</h2><p>按项目内导入次数排序，不含测试和只有一行的包初始化文件。改动这些文件，影响面最大。</p></div>
+    <ul class="hubs"><li><div class="hrow"><code>sycl/include/dpct/dpct.hpp</code><span class="hc">被 158 个文件导入</span></div><p>Intel SYCLomatic（dpct）运行时辅助库的总入口头文件：说明 DPCT_USM_LEVEL_NONE、DPCT_PROFILING_ENABLED、DPCT_HELPER_VERBOSE 三个宏，并 include atomic、device、image、kernel、math、me…</p></li>
+<li><div class="hrow"><code>apps/host/src/lib/i18n.ts</code><span class="hc">被 127 个文件导入</span></div><p>前端国际化核心：导入 en.json 以及 tune/tools 等多批 zh/ja/de/es/ru/pt/ko/fr 语言包，合并成各语言字典；导出 LANGUAGES、validLanguage、currentLanguage、localeTag 与 setTranslationLanguag…</p></li>
+<li><div class="hrow"><code>serve/server.py</code><span class="hc">被 122 个文件导入</span></div><p>Python 推理服务端的核心（约 1 万行）：用标准库 ThreadingHTTPServer 提供 OpenAI Chat Completions、Anthropic Messages、Responses、图像生成、/v1/models、/health、/metrics、/config、/v1/…</p></li>
+<li><div class="hrow"><code>setup.py</code><span class="hc">被 99 个文件导入</span></div><p>源码检出的一键安装器，约 1.1 万行：检测 NVIDIA/AMD/Mac 硬件，询问模型族、量化大小、上下文与视觉，创建 .venv 并安装依赖，获取预编译或本地编译的引擎，从 Hugging Face 断点下载模型，写入 run-&lt;model&gt;.bat/.sh 并启动服务。同时承载 MODELS…</p></li>
+<li><div class="hrow"><code>apps/host/src/components/ui.tsx</code><span class="hc">被 97 个文件导入</span></div><p>Strata 的 UI 原语库：封装设计套件的 st-* 样式类，提供 Btn、IconBtn、Icon、Dialog、Select、ErrorNotice、ActionError、Toasts 等，含焦点管理、portal、ARIA 属性与 toast 的暂停/关闭，并联动 store 的错误/提…</p></li>
+<li><div class="hrow"><code>serve/frontend.py</code><span class="hc">被 79 个文件导入</span></div><p>请求/响应文本层（不涉及模型和 GPU）：把 OpenAI 与 Anthropic 请求规范化为聊天模板消息，用 Jinja 渲染模型自带的 chat template（与 chat_golden.json 对照校验），并包含 OutputParser，增量解析流式输出中的 &lt;think&gt; 推理、正…</p></li>
+<li><div class="hrow"><code>sycl/include/strata/sycl_queue.hpp</code><span class="hc">被 74 个文件导入</span></div><p>SYCL 移植对引擎 API 面唯一的新增：q_of() 把 CUDA 的 void* stream（null 表示默认流）转成 sycl::queue*，null 时返回默认 in-order 队列；big_fill_zero 把超大设备清零拆成不超过 256 MiB 的计算 kernel，避开 …</p></li>
+<li><div class="hrow"><code>strata_control/engine_component.py</code><span class="hc">被 63 个文件导入</span></div><p>在本地组件目录中查找并校验本机适用引擎包，没有任何下载路径：定义 engine-component.json 清单（schema 2）、EngineComponent、EngineMissing/EngineIntegrityError（退出码 5），解析 components_dir、最新或固定版…</p></li>
+<li><div class="hrow"><code>include/strata/kernels/qsa.hpp</code><span class="hc">被 63 个文件导入</span></div><p>QSA（全注意力）层的缓存、indexer 与注意力 kernel 的公共接口（P2.S2）：kv_append 写分页 KV、indexer_key_append 与块池化、qsa_index 按 cell 的 indexer 打分、topk_512 选择等。规格以 ref/qsa.py 与 re…</p></li>
+<li><div class="hrow"><code>apps/host/src/lib/store.ts</code><span class="hc">被 60 个文件导入</span></div><p>前端的全局状态仓库（约 2400 行、上百个导出）：自带订阅机制和 useStore selector，管理会话/聊天消息与流式帧、模型连接、主题/语言/字号/密度/动效/透明度等外观设置、toast 与错误、Agent 询问与审批、loop 调度、排队消息、生命周期状态与启动引导（bootstra…</p></li></ul>
+  </section>
+
+  <section class="howto">
+    <h2>在电脑上打开完整图谱</h2>
+    <ol>
+      <li>克隆 fork 的 <code>main</code> 分支，图谱数据在 <code>.ua/</code> 里。</li>
+      <li>装有 Node.js 18 以上即可运行下面的命令，不需要 Claude Code 或 API key。</li>
+      <li>浏览器会打开交互式仪表盘：可搜索、按层浏览、点开任意文件看摘要和全部依赖。</li>
+    </ol>
+    <div class="cmd"><pre><code id="cmd">git clone https://github.com/tyloryang/strata
+npx https://github.com/Egonex-AI/Understand-Anything/releases/latest/download/understand-anything-viewer.tgz ./strata</code></pre><button type="button" id="copy">复制</button></div>
+  </section>
+
+  <div class="notes">
+    <p>生成方式：按 Understand-Anything 的 /understand 流程与图谱格式生成，输出语言为中文。由于环境无法安装 tree-sitter，扫描与依赖解析改用 Python 实现（Python 用 ast，C/C++/CUDA/Metal 解析 #include，TS/JS 解析 import）。</p>
+    <p>254 个核心文件和 96 个模块由分析代理阅读源码后撰写摘要，大文件只读了开头和函数清单；其余文件的摘要根据文件头注释与结构自动生成。C++ 只提取了类/结构体与 GPU kernel，没有函数级调用关系。</p>
+  </div>
+</main>
+<script>
+document.getElementById("copy").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget, text = document.getElementById("cmd").textContent;
+  try { await navigator.clipboard.writeText(text); btn.textContent = "已复制"; }
+  catch (e) { const r = document.createRange(); r.selectNodeContents(document.getElementById("cmd"));
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = "已选中"; }
+  setTimeout(() => { btn.textContent = "复制"; }, 1800);
+});
+</script>
