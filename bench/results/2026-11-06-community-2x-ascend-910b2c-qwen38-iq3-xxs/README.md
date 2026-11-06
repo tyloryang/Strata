@@ -2,6 +2,8 @@
 
 实测日期：2026-11-06（UTC+8）。这是对 Strata 原生 CANN 开发路径的定向测量，不是 `strata bench run` 标准基准，也不代表桌面版或 Terminal 安装包已支持 Ascend。
 
+按步骤从环境检查、Strata CANN 构建、Qwen3.8 适配到 API 压测的部署说明见[双 910B2C 部署手册](../../../cann/QWEN38_IQ3_XXS_910B2C_DEPLOY_CN.md)，其中也列出与 2×A100 CUDA 部署记录的口径差异。
+
 ## 环境与配置
 
 | 项目 | 实测值 |

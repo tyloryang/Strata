@@ -156,7 +156,7 @@ strata launch
 | **Intel Arc · Linux** | [Intel 安装](docs/INTEL_ARC.md) |
 | **Apple Silicon · M1 或更新** | [Mac 安装](docs/MAC.md) |
 | **AMD Ryzen AI Max · Strix Halo** | [Strix Halo 安装](docs/STRIX_HALO.md) |
-| **Ascend 910B2C · 实验性 CANN 开发移植** | [部署与压测报告](bench/results/2026-11-06-community-2x-ascend-910b2c-qwen38-iq3-xxs/README.md) · 暂未集成到桌面版或 Terminal 安装包 |
+| **Ascend 910B2C · 实验性 CANN 开发移植** | [910 一步步部署手册](cann/QWEN38_IQ3_XXS_910B2C_DEPLOY_CN.md) · [实测与压测报告](bench/results/2026-11-06-community-2x-ascend-910b2c-qwen38-iq3-xxs/README.md) · 暂未集成到桌面版或 Terminal 安装包 |
 
 <a id="using-it"></a>
 
