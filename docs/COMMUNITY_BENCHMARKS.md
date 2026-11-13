@@ -74,6 +74,9 @@ and their limits. Report what you actually measured and label estimates separate
 - [2026-10-12: Radeon 780M (gfx1103), Ryzen 7 8745HS, 60 GB RAM, GTT 50 GiB](../bench/results/2026-10-12-community-gfx1103/README.md):
   the gfx1103 port (native dot4, the gfx11 WMMA kernels, the exact speed switches and a calibrated hipBLASLt table), hand-built on ROCm 10.1, Q2_0 + MTP at 32K: prompts 90 tok/s plain, 186 with the table, 277 with the WMMA opt-ins (4K), decode 13.1 -> 14.3 tok/s; zero GPU resets.
 
+- [2026-11-02: 2x NVIDIA A100-SXM4-40GB, 32 cores, 94 GiB RAM](../bench/results/2026-11-02-community-2x-a100-sxm4-40gb/README.md):
+  Strata in Docker, Flash-Next IQ3_XXS, 262,144-token context, `--spec 4 --kv int8 --kv-resident 32768 --ple-io mmap --layer-split auto --parallel 8`, pipeline mode (`STRATA_BATCH_MTP_SERIAL=0`, batch-mtp effectively off); c2000 evalscope round, prompt 2000 / output 100, thinking off, single run only, total average 43.29 tok/s. Spec Accept Rate only about 1-2.1%, concurrency 6 arm suspected polluted. Machine since retired.
+
 ## Run the standard benchmark
 
 ```sh
